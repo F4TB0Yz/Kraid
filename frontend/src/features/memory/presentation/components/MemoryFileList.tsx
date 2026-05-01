@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useMemoryStore } from '../store/memoryStore';
-import { SearchIcon } from '../../../../core/presentation/components/icons';
+import { SearchIcon, PlusIcon } from '../../../../core/presentation/components/icons';
 import type { MemoryFileType } from '../../domain/entities/MemoryFile';
+import { Skeleton } from '../../../../core/presentation/components/Skeleton';
 
 const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
   { label: 'All', value: 'all' },
@@ -25,6 +26,13 @@ const typeLabels: Record<MemoryFileType, string> = {
   reference: 'Reference',
 };
 
+const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
+  { label: 'User', value: 'user' },
+  { label: 'Project', value: 'project' },
+  { label: 'Feedback', value: 'feedback' },
+  { label: 'Reference', value: 'reference' },
+];
+
 const formatRelativeTime = (date: Date): string => {
   const diff = Date.now() - date.getTime();
   const minutes = Math.floor(diff / 60_000);
@@ -37,10 +45,71 @@ const formatRelativeTime = (date: Date): string => {
   return date.toLocaleDateString([], { dateStyle: 'medium' });
 };
 
+const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
+  const [type, setType] = useState<MemoryFileType>('user');
+  const [title, setTitle] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    onCreate(type, title.trim());
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-80 rounded-2xl bg-card p-5 shadow-xl ring-1 ring-border animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 font-serif text-base font-medium text-text">New Memory</h3>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Architecture Decision"
+              className="w-full rounded-lg border border-border-warm bg-bg px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent placeholder:text-olive-gray"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Type</label>
+            <div className="flex gap-1.5">
+              {newTypeOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setType(opt.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    type === opt.value
+                      ? 'bg-accent text-ivory'
+                      : 'bg-warm-sand text-charcoal-warm hover:bg-border-warm'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-charcoal-warm transition-colors hover:bg-warm-sand">
+              Cancel
+            </button>
+            <button type="submit" disabled={!title.trim()} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-ivory transition-colors hover:bg-coral disabled:opacity-40">
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 export const MemoryFileList = () => {
-  const { files, selectedFileId, selectFile } = useMemoryStore();
+  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
+  const [showNewModal, setShowNewModal] = useState(false);
 
   const filteredFiles = useMemo(() => {
     let result = files;
@@ -57,6 +126,10 @@ export const MemoryFileList = () => {
     }
     return result;
   }, [files, activeFilter, searchQuery]);
+
+  const handleCreate = async (type: MemoryFileType, title: string) => {
+    await addFile(type, title);
+  };
 
   return (
     <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
@@ -77,32 +150,53 @@ export const MemoryFileList = () => {
             placeholder="Search files..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg bg-bg border border-border px-9 py-2 text-sm text-text placeholder-charcoal-warm focus:outline-none focus:ring-2 focus:ring-accent"
+            className="w-full rounded-lg border border-border bg-bg px-9 py-2 text-sm text-text placeholder-charcoal-warm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
       </div>
 
-      <div className="flex gap-1.5 border-b border-border-cream px-4 py-2.5 flex-wrap">
-        {FILE_TYPES.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => setActiveFilter(t.value)}
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-              activeFilter === t.value
-                ? 'bg-accent/10 text-accent'
-                : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-1.5 border-b border-border-cream px-4 py-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {FILE_TYPES.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setActiveFilter(t.value)}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                activeFilter === t.value
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowNewModal(true)}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-olive-gray transition-colors hover:bg-accent/10 hover:text-accent"
+          title="New Memory"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {filteredFiles.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-charcoal-warm">
-            {searchQuery || activeFilter !== 'all' ? 'No matching files' : 'No files yet'}
-          </p>
+        {isLoading && files.length === 0 ? (
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-3/4" />
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-charcoal-warm">No files yet</p>
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="mt-2 text-xs text-accent transition-colors hover:text-coral"
+            >
+              Create your first memory
+            </button>
+          </div>
         ) : (
           <div className="flex flex-col gap-0.5 px-2 py-2">
             {filteredFiles.map((file) => {
@@ -117,17 +211,11 @@ export const MemoryFileList = () => {
                       : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
                   }`}
                 >
-                  <span
-                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`}
-                  />
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {file.title}
-                    </div>
+                    <div className="truncate text-sm font-medium">{file.title}</div>
                     <div className="mt-0.5 flex items-center gap-2">
-                      <span
-                        className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}
-                      >
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}>
                         {typeLabels[file.type]}
                       </span>
                       <span className="text-[11px] text-olive-gray">
@@ -141,6 +229,13 @@ export const MemoryFileList = () => {
           </div>
         )}
       </div>
+
+      {showNewModal && (
+        <NewMemoryModal
+          onClose={() => setShowNewModal(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </div>
   );
 };

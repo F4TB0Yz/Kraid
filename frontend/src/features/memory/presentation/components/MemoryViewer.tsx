@@ -4,7 +4,7 @@ import { MemoryFileList } from './MemoryFileList';
 import { MemoryFileContent } from './MemoryFileContent';
 
 export const MemoryViewer = () => {
-  const { loadFiles } = useMemoryStore();
+  const { loadFiles, selectedFileId } = useMemoryStore();
 
   useEffect(() => {
     void loadFiles();
@@ -13,7 +13,7 @@ export const MemoryViewer = () => {
   return (
     <div className="flex h-full w-full bg-card">
       <MemoryFileList />
-      <MemoryFileContent />
+      <MemoryFileContent key={selectedFileId ?? 'none'} />
     </div>
   );
 };

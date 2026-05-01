@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
 import { Sidebar } from '../components/Sidebar';
+import { StatusBar } from '../components/StatusBar';
 
 type RightPanelMode = 'canvas' | 'memory' | 'closed';
 
@@ -70,88 +71,93 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg p-2 md:p-3 relative">
-      <div
-        className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex-1 m-2 md:m-3 rounded-2xl ring-1 ring-border-warm overflow-hidden bg-card">
-          <Sidebar onClose={() => setSidebarOpen(false)} />
-        </div>
-      </div>
-
-      <div
-        ref={containerRef}
-        className={`flex h-full flex-1 gap-3 transition-all duration-300 ease-in-out ${
-          sidebarOpen ? 'md:ml-64' : 'ml-0'
-        }`}
-      >
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
+      <div className="flex flex-1 overflow-hidden">
         <div
-          style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
-          className={`flex h-full flex-shrink-0 flex-col bg-card z-10 min-w-0 ${isDragging ? '' : 'transition-[width] duration-300 ease-in-out'} ${isRightPanelVisible ? 'will-change-[width]' : ''} rounded-none md:rounded-2xl ring-1 ring-border-warm overflow-hidden`}
-        >
-          <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
-              aria-label="Toggle Sidebar"
-            >
-              <MenuIcon className="h-5 w-5" />
-            </button>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleCanvasToggle}
-                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                  rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                }`}
-                aria-label="Toggle Canvas"
-              >
-                <PanelRightIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleMemoryToggle}
-                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                  rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                }`}
-                aria-label="Toggle Memory Viewer"
-              >
-                <BrainIcon className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            {leftPanel}
-          </div>
-        </div>
-
-        {!isMobile && isRightPanelVisible && (
-          <div
-            className="flex items-center justify-center cursor-col-resize transition-colors z-20"
-            style={{ width: '16px' }}
-            onMouseDown={() => setIsDragging(true)}
-          >
-            <div className="h-10 w-0.5 rounded-full transition-colors bg-ring-warm/0 hover:bg-ring-warm/40" />
-          </div>
-        )}
-
-        <div
-          className={`min-w-0 flex-1 bg-card transition-all duration-300 ease-in-out rounded-none md:rounded-2xl ring-1 ring-border-warm overflow-hidden ${
-            !isRightPanelVisible ? 'opacity-0 hidden' : 'opacity-100'
+          className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          {rightPanelMode === 'canvas' && rightPanel}
-          {rightPanelMode === 'memory' && memoryPanel}
+          <div className="m-2 flex-1 overflow-hidden rounded-2xl bg-card ring-1 ring-border-warm md:m-3">
+            <Sidebar onClose={() => setSidebarOpen(false)} />
+          </div>
         </div>
-      </div>
 
-      {sidebarOpen && (
         <div
-          className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+          ref={containerRef}
+          className={`flex flex-1 gap-3 transition-all duration-300 ease-in-out ${
+            sidebarOpen ? 'md:ml-64' : 'ml-0'
+          }`}
+        >
+          <div
+            style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
+            className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden rounded-none bg-card md:rounded-2xl ${
+              isDragging ? '' : 'transition-[width] duration-300 ease-in-out'
+            } ${isRightPanelVisible ? 'will-change-[width]' : ''} ring-1 ring-border-warm`}
+          >
+            <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
+                aria-label="Toggle Sidebar"
+              >
+                <MenuIcon className="h-5 w-5" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleCanvasToggle}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                    rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  }`}
+                  aria-label="Toggle Canvas"
+                >
+                  <PanelRightIcon className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleMemoryToggle}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                    rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  }`}
+                  aria-label="Toggle Memory Viewer"
+                >
+                  <BrainIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {leftPanel}
+            </div>
+          </div>
+
+          {!isMobile && isRightPanelVisible && (
+            <div
+              className="z-20 flex cursor-col-resize items-center justify-center transition-colors"
+              style={{ width: '16px' }}
+              onMouseDown={() => setIsDragging(true)}
+            >
+              <div className="h-10 w-0.5 rounded-full transition-colors hover:bg-ring-warm/40 bg-ring-warm/0" />
+            </div>
+          )}
+
+          <div
+            className={`min-w-0 flex-1 overflow-hidden rounded-none bg-card transition-all duration-300 ease-in-out md:rounded-2xl ring-1 ring-border-warm ${
+              !isRightPanelVisible ? 'hidden opacity-0' : 'opacity-100'
+            }`}
+          >
+            {rightPanelMode === 'canvas' && rightPanel}
+            {rightPanelMode === 'memory' && memoryPanel}
+          </div>
+        </div>
+
+        {sidebarOpen && (
+          <div
+            className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </div>
+      <StatusBar />
     </div>
   );
 };

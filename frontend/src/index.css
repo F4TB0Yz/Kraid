@@ -1,10 +1,11 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
 @theme {
   /* Dynamic mappings based on standard variables */
   --color-parchment: var(--parchment);
-  --color-terracotta: var(--accent); /* Redirect legacy terracotta to accent */
+  --color-terracotta: var(--accent);
   --color-coral: var(--coral);
   --color-charcoal: var(--charcoal);
   --color-ivory: var(--ivory);
@@ -12,17 +13,25 @@
   /* Surfaces */
   --color-warm-sand: var(--warm-sand);
   --color-dark-surface: var(--dark-surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-code: var(--surface-code);
 
   /* Text neutrals */
   --color-charcoal-warm: var(--charcoal-warm);
   --color-olive-gray: var(--olive-gray);
   --color-stone-gray: var(--stone-gray);
   --color-warm-silver: var(--warm-silver);
+  --color-text-quiet: var(--text-quiet);
+  --color-text-muted: var(--text-muted);
+  --color-text-strong: var(--text-strong);
 
-  /* Borders */
+  /* Borders & Rings */
   --color-border-cream: var(--border-cream);
   --color-border-warm: var(--border-warm);
   --color-ring-warm: var(--ring-warm);
+  --color-ring-subtle: var(--ring-subtle);
+  --color-ring-focus: var(--ring-focus);
 
   /* Semantic */
   --color-error: var(--error);
@@ -34,6 +43,11 @@
   --color-text: var(--charcoal);
   --color-border: var(--border-cream);
   --color-accent: var(--accent);
+
+  /* Motion tokens */
+  --motion-fast: var(--motion-fast);
+  --motion-base: var(--motion-base);
+  --motion-slow: var(--motion-slow);
 }
 
 :root {
@@ -53,6 +67,25 @@
   --error: #b53333;
   --focus: #3898ec;
 
+  /* New surfaces */
+  --surface-elevated: #ffffff;
+  --surface-sunken: #f0eee6;
+  --surface-code: #30302e;
+
+  /* New text tokens */
+  --text-quiet: #b0aea5;
+  --text-muted: #87867f;
+  --text-strong: #141413;
+
+  /* New ring tokens */
+  --ring-subtle: #f0eee6;
+  --ring-focus: #3898ec;
+
+  /* Motion tokens */
+  --motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --motion-base: 200ms cubic-bezier(0.2, 0, 0, 1);
+  --motion-slow: 320ms cubic-bezier(0.2, 0, 0, 1);
+
   /* Accent presets for color picker */
   --color-terracotta-preview: #c96442;
   --color-sage-preview: #648c71;
@@ -63,10 +96,10 @@
 }
 
 [data-theme="dark"] {
-  --parchment: #1a1a19;
+  --parchment: #1c1c1a;
   --coral: #e28f73;
   --charcoal: #faf9f5;
-  --ivory: #242422;
+  --ivory: #26261f;
   --warm-sand: #2e2d2a;
   --dark-surface: #f5f4ed;
   --charcoal-warm: #d1cfc5;
@@ -77,6 +110,19 @@
   --border-warm: #4d4c48;
   --ring-warm: #5e5d59;
   --error: #e57373;
+
+  /* New dark surfaces */
+  --surface-elevated: #30302e;
+  --surface-sunken: #1a1a19;
+  --surface-code: #3a3935;
+
+  /* New dark text */
+  --text-quiet: #5e5d59;
+  --text-muted: #87867f;
+  --text-strong: #faf9f5;
+
+  /* New dark rings */
+  --ring-subtle: #3a3935;
 }
 
 [data-accent="sage"] { --accent: var(--color-sage-preview); }
@@ -90,13 +136,17 @@ html[data-font-size="default"] { font-size: 14px; }
 html[data-font-size="comfortable"] { font-size: 16px; }
 
 html {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text);
 }
 
 .font-serif {
   font-family: Georgia, 'Times New Roman', serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Monaco, monospace;
 }
 
 ::selection {
@@ -143,6 +193,36 @@ html {
   will-change: transform, opacity;
 }
 
+/* Fade in animation */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in var(--motion-base) forwards;
+}
+
+/* Caret blink for streaming cursor */
+@keyframes caret-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.animate-caret-blink {
+  animation: caret-blink 1s step-end infinite;
+}
+
+/* Scale in for popovers */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-scale-in {
+  animation: scale-in var(--motion-fast) ease-out forwards;
+}
+
 .contain-content {
   contain: content;
 }
@@ -166,3 +246,11 @@ html {
   --tw-prose-td-borders: var(--border-cream);
 }
 
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

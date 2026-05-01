@@ -1,8 +1,11 @@
 import type { MemoryFile } from '../../domain/entities/MemoryFile';
 import { createMemoryFile } from '../../domain/entities/MemoryFile';
+import type { MemoryFileType } from '../../domain/entities/MemoryFile';
 
 export interface MemoryRepository {
   getAll(): Promise<MemoryFile[]>;
+  add(file: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile>;
+  update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile>;
 }
 
 const FILES: MemoryFile[] = [
@@ -19,7 +22,7 @@ const FILES: MemoryFile[] = [
     'project_kraid.md',
     'Project Kraid',
     'project',
-    '# Project Kraid\n\n## Overview\n\nKraid is a full-stack monorepo workspace designed as an AI-assisted development environment. It combines a React frontend with a FastAPI backend to provide a rich interface for code generation, document editing, and conversation management.\n\n## Architecture\n\n- **Monorepo** with `frontend/` and `backend/` directories\n- **Frontend**: Vite + React 19 + TypeScript + Tailwind CSS v4\n- **Backend**: FastAPI (Python 3.9+) + Uvicorn\n- **State**: Zustand stores with repository injection\n- **Pattern**: Clean Architecture with Feature Slices\n\n## Roadmap\n\n1. Memory file viewer (current)\n2. Real API integration\n3. Authentication & user sessions\n4. Collaborative editing',
+    '# Project Kraid\n\n## Overview\n\nKraid is a full-stack monorepo workspace designed as an AI-assisted development environment.\n\n## Architecture\n\n- **Monorepo** with `frontend/` and `backend/` directories\n- **Frontend**: Vite + React 19 + TypeScript + Tailwind CSS v4\n- **Backend**: FastAPI (Python 3.9+) + Uvicorn\n- **State**: Zustand stores with repository injection\n- **Pattern**: Clean Architecture with Feature Slices\n\n## Roadmap\n\n1. Memory file viewer (current)\n2. Real API integration\n3. Authentication & user sessions\n4. Collaborative editing',
     new Date('2024-03-20T14:00:00'),
   ),
   createMemoryFile(
@@ -43,17 +46,37 @@ const FILES: MemoryFile[] = [
     'reference_architecture.md',
     'Reference Architecture',
     'reference',
-    '# Kraid Architecture Reference\n\n## Clean Architecture — Feature Slices\n\n```\nfeatures/\n  $feature/\n    data/\n      repositories/\n        NombreRepository.ts\n    domain/\n      entities/\n        Nombre.ts\n      errors/\n        NombreErrors.ts\n    presentation/\n      components/\n        NombreComponente.tsx\n      store/\n        nombreStore.ts\n```\n\n## Dependency Flow\n\n```\npresentation/ -> domain/ <- data/\n```\n\nPresentation depends on domain. Domain depends on nothing. Data implements domain interfaces.\n\n## State Management\n\n- Zustand for per-feature state\n- Factory pattern: `createNombreStore(config)` with repo injection\n- Synchronous state + async actions (`load*`, `add*`, `update*`)\n\n## Conventions\n\n| Type | Convention | Example |\n|------|------------|--------|\n| Components | PascalCase + .tsx | `ChatPanel.tsx` |\n| Stores | camelCase + `Store` suffix | `chatStore.ts` |\n| Entities | PascalCase | `Message.ts` |\n| Errors | PascalCase + `Error` suffix | `DocumentNotFoundError.ts` |\n| Repositories | PascalCase + `Repository` suffix | `MessageRepository.ts` |\n| Factory fn | `create` + Entity name | `createMessage()` |',
+    '# Kraid Architecture Reference\n\n## Clean Architecture — Feature Slices\n\n```\nfeatures/\n  $feature/\n    data/\n      repositories/\n        NombreRepository.ts\n    domain/\n      entities/\n        Nombre.ts\n      errors/\n        NombreErrors.ts\n    presentation/\n      components/\n        NombreComponente.tsx\n      store/\n        nombreStore.ts\n```\n\n## Dependency Flow\n\n```\npresentation/ -> domain/ <- data/\n```\n\nPresentation depends on domain. Domain depends on nothing. Data implements domain interfaces.\n\n## Conventions\n\n| Type | Convention | Example |\n|------|------------|--------|\n| Components | PascalCase + .tsx | `ChatPanel.tsx` |\n| Stores | camelCase + `Store` suffix | `chatStore.ts` |\n| Entities | PascalCase | `Message.ts` |\n| Errors | PascalCase + `Error` suffix | `DocumentNotFoundError.ts` |\n| Repositories | PascalCase + `Repository` suffix | `MessageRepository.ts` |\n| Factory fn | `create` + Entity name | `createMessage()` |',
     new Date('2024-04-10T12:00:00'),
   ),
 ];
 
 export class MockMemoryRepository implements MemoryRepository {
-  private files: MemoryFile[] = FILES;
+  private files: MemoryFile[] = FILES.map((f) => ({ ...f }));
 
   async getAll(): Promise<MemoryFile[]> {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    return [...this.files];
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return this.files.map((f) => ({ ...f }));
+  }
+
+  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const file = createMemoryFile(`mem-${Date.now()}`, data.filename, data.title, data.type, data.content);
+    this.files.push(file);
+    return { ...file };
+  }
+
+  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const idx = this.files.findIndex((f) => f.id === id);
+    if (idx < 0) throw new Error('Memory file not found');
+    this.files[idx] = {
+      ...this.files[idx],
+      ...data,
+      lastModified: new Date(),
+      wordCount: (data.content ?? this.files[idx].content).trim().split(/\s+/).filter((w) => w.length > 0).length,
+    };
+    return { ...this.files[idx] };
   }
 }
 
