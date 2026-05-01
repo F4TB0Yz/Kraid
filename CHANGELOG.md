@@ -2,7 +2,50 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **tool-call ordering**: `tool_calls_list` construido antes de `assistant_msg` (estaba referenciado sin definir). `assistant_msg` ahora se construye antes del `if not tool_calls_buf` para ambos paths (con/sin tools).
+- **reasoning_content multi-turn**: `getattr(delta, "reasoning_content")` capturado del stream y pasado en `assistant_msg["reasoning_content"]` para compatibilidad con DeepSeek V4 (lanza 400 si no se devuelve en el siguiente turno).
+- **fs sandbox prefix-match**: `is_relative_to()` en lugar de `startswith()` para evitar bypass con `/repo-evil` cuando root es `/repo`.
+- **fs relative paths**: `_resolve_path()` une paths relativos contra `settings.resolved_repo_root` en lugar de CWD del backend.
+- **canvas PUT/POST body**: `UpdateBody`/`CreateBody` Pydantic models en lugar de query params para alinear con `DocumentRepository.ts`.
+- **fs_search exclusions**: skip dirs en `{".venv","node_modules",".git","dist","__pycache__",...}`, cap archivo 500KB, cap resultados 100.
+- **memory_write re-validation**: re-check sandbox después de appendear `.md` y reasignar filepath.
+
 ### Added
+
+- **`OPENAI_BASE_URL`** en `Settings` → `AsyncOpenAI(base_url=...)` para apuntar a cualquier endpoint OpenAI-compatible (opencode gateway, OpenRouter, Ollama, vLLM). Template en `.env.example` comentado.
+
+### Changed
+
+- **503 real sin API key**: `POST /api/chat/stream` lanza `HTTPException(503)` en lugar de devolver SSE con error event.
+
+- **Agente IA real (OpenAI)**: Integración completa con OpenAI vía SDK oficial. `AgentService` ejecuta loop de tool calling con streaming SSE. Backend centraliza la API key, frontend consume eventos en tiempo real.
+- **Tools del agente**: `ToolRegistry` con 11 tools: `canvas_list/read/create/edit`, `memory_list/read/write`, `fs_read/write/list/search`. Sandboxing de filesystem contra `repo_root`. Memoria persiste en archivos `.md`. Canvas comparte store con REST API.
+- **SSE streaming endpoint**: `POST /api/chat/stream` reemplaza endpoints dummy. Devuelve `EventSourceResponse` con eventos `text_delta`, `tool_call_start/end`, `done`. Sin API key → error 503 con mensaje claro.
+- **Canvas store compartido**: `services/canvas_store.py` con `CanvasStore` multi-documento. Usado tanto por REST API como por tools del agente.
+- **HttpStreamingRepository**: Nuevo repo frontend que consume SSE vía `fetch` + `ReadableStream`. Implementa `StreamingRepository` interfaz extraída del mock. Envía historial completo de mensajes.
+- **StreamingRepository interfaz**: Tipos `StreamEvent` y función `eventsToParts` extraídos a archivo propio. Interfaz `StreamingRepository` con `stream(messages)`.
+- **core/config.ts**: `API_BASE` desde `VITE_API_BASE` env var (default `http://localhost:8000`).
+- **agentStatusStore.error**: Nuevo campo `error` + `setError()` para mostrar toast cuando falta API key.
+- **backend/config.py**: `Settings` con `openai_api_key`, `openai_model`, `repo_root`, `max_tool_iterations`. Carga `.env` con `python-dotenv`.
+- **frontend/.env.example** y **backend/.env.example**: Templates de configuración.
+
+### Changed
+
+- **routers/chat.py**: Reemplazado GET/POST dummy messages por `POST /stream` con SSE.
+- **routers/canvas.py**: Refactorizado a usar `CanvasStore` compartido. Endpoints ahora multi-documento con `/{doc_id}`.
+- **chatStore**: Inyecta `HttpStreamingRepository` en lugar de mock. `sendMessage` envía historial completo (`messages[]`). Maneja eventos `error` del backend.
+- **main.py**: Startup valida `OPENAI_API_KEY`. `/health` expone `agent_ready`.
+- **frontend/package.json**: Dependencias frontend sin cambios (vitest sigue siendo gap conocido).
+
+### Removed
+
+- **MockStreamingRepository**: Eliminado. Reemplazado por `HttpStreamingRepository` + `StreamingRepository.ts` (interfaz + tipos extraídos).
+
+### Fixed
+
+- **Python 3.9 compat**: Tipos `Optional[X]` en lugar de `X | None` en todo el backend.
 
 - **Canvas multi-tab**: `canvasStore` migrado a multi-documento con `documents[]`, `activeDocumentId`, `loadDocuments`, `addDocument`, `removeDocument`. `DocumentRepository` extendido con `getAll()`, `addDocument()`, `removeDocument()`. `MarkdownCanvas` rediseñado con tab bar superior (tabs navegables, botón +New), toolbar segmented (Preview/Edit/Split), métricas movidas al panel de edición. Skeleton loading states.
 - **Memoria editable**: `memoryStore` extendido con `addFile(type, title)`, `updateFile(id, data)`, `setEditing()`. `MemoryRepository` extendido con `add()`, `update()`. `MemoryFileList` con botón "+ New memory" + modal selector de tipo. `MemoryFileContent` con edición in-place de título + contenido con auto-save 1.5s y empty state ilustrado. Key-based remount para evitar efectos de sincronización.

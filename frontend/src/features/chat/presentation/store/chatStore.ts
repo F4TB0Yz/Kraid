@@ -4,7 +4,8 @@ import { useConversationStore } from '../../../conversations/presentation/store/
 import { conversationRepository } from '../../../conversations/data/repositories/ConversationRepository';
 import type { Conversation } from '../../../conversations/domain/entities/Conversation';
 import { useAgentStatusStore } from '../../../../core/presentation/store/agentStatusStore';
-import { mockStreamingRepository, eventsToParts } from '../../data/repositories/MockStreamingRepository';
+import { httpStreamingRepository } from '../../data/repositories/HttpStreamingRepository';
+import { eventsToParts } from '../../data/repositories/StreamingRepository';
 
 interface ChatState {
   isLoading: boolean;
@@ -61,9 +62,20 @@ export const useChatStore = create<ChatState>((set) => ({
         streamingParts: [],
       });
 
-      const events: import('../../data/repositories/MockStreamingRepository').StreamEvent[] = [];
+      // Build full message history for the API
+      const convState = useConversationStore.getState();
+      const conv = convState.conversations.find((c) => c.id === currentConvId);
+      const allMessages = conv?.messages ?? [];
+      const apiMessages = allMessages
+        .filter((m) => m.id !== assistantId)
+        .map((m) => ({
+          role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: m.content,
+        }));
 
-      const stream = mockStreamingRepository.stream(content);
+      const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
+
+      const stream = httpStreamingRepository.stream(apiMessages);
       for await (const event of stream) {
         events.push(event);
 
@@ -85,6 +97,10 @@ export const useChatStore = create<ChatState>((set) => ({
             useAgentStatusStore.getState().setStatus('streaming');
             break;
           }
+          case 'error': {
+            useAgentStatusStore.getState().setError(event.content);
+            break;
+          }
         }
 
         const currentParts = eventsToParts(events);
@@ -103,18 +119,18 @@ export const useChatStore = create<ChatState>((set) => ({
         parts: finalParts,
       };
 
-      const convState = useConversationStore.getState();
-      const convs = convState.conversations;
+      const finalConvState = useConversationStore.getState();
+      const convs = finalConvState.conversations;
       const convIdx = convs.findIndex((c) => c.id === currentConvId);
       if (convIdx >= 0) {
-        const conv = convs[convIdx];
+        const currentConv = convs[convIdx];
         const updatedConv: Conversation = {
-          ...conv,
-          messages: conv.messages.map((m) => (m.id === assistantId ? updatedMessage : m)),
+          ...currentConv,
+          messages: currentConv.messages.map((m) => (m.id === assistantId ? updatedMessage : m)),
           updatedAt: new Date(),
         };
         conversationRepository.save(updatedConv);
-        convState.loadConversations();
+        finalConvState.loadConversations();
       }
 
       set({
