@@ -139,15 +139,34 @@ No tests configurados aún. Estructura: `backend/tests/`
 ## Rules for Agents
 
 1. **Modo Caveman Lite** — Antes de cualquier respuesta, cargar la skill `caveman` en modo `lite`. Responder de forma ultra-comprimida: sin artículos innecesarios, sin relleno, fragmentación permitida, sinónimos cortos. Mantener toda precisión técnica. Solo desactivarlo temporalmente para advertencias de seguridad o confirmaciones de acciones irreversibles. Reanudar tras resolver.
-2. **No modificar `package.json`** para agregar dependencias sin confirmar primero
-3. **Seguir feature slice pattern** — todo código nuevo va en `features/$feature/` o `core/`
-4. **Usar factory functions** para entidades, no clases
-5. **Seguir naming conventions** de arriba
-6. **Nunca hardcodear URLs de API** — usar el repositorio pattern
-7. **Correr `npm run lint` y `npm run typecheck`** después de hacer cambios en el frontend
-8. **Mantener consistencia** con los patrones de error existentes (`*DomainError`, `*NotFoundError`, `*LoadFailure`)
-9. **No crear archivos de test duplicados** — seguir la estructura `src/test/` que refleja la distribución
-10. **No modificar el backend** sin confirmar estructura de directorios
+
+2. **Git status pre-check** — Antes de empezar a trabajar, ejecutar `git status`. Si hay cambios sin commit NO relacionados con la tarea actual (staged o unstaged), notificar al usuario con la lista de archivos y sugerir hacer commit antes de continuar. Esperar instrucciones. No trabajar sobre working tree sucio. Si los cambios SÍ están relacionados, proceder normalmente.
+
+3. **No modificar `package.json`** para agregar dependencias sin confirmar primero
+
+4. **Seguir feature slice pattern** — todo código nuevo va en `features/$feature/` o `core/`
+
+5. **Usar factory functions** para entidades, no clases
+
+6. **Seguir naming conventions** de arriba
+
+7. **Nunca hardcodear URLs de API** — usar el repositorio pattern
+
+8. **Verificar frontend antes de entregar** — después de cambios en `frontend/`, correr en este orden: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`. Si cualquiera falla, corregir antes de continuar. Si el cambio no toca frontend, omitir.
+
+9. **Mantener consistencia** con los patrones de error existentes (`*DomainError`, `*NotFoundError`, `*LoadFailure`)
+
+10. **No crear archivos de test duplicados** — seguir la estructura `src/test/` que refleja la distribución
+
+11. **No modificar el backend** sin confirmar estructura de directorios
+
+12. **Verificar backend antes de entregar** — después de cambios en `backend/`, activar venv y verificar: `python -m py_compile app/main.py` y `python -c "from app.main import app"`. Si falla, corregir antes de continuar. Si el cambio no toca backend, omitir.
+
+13. **Responder en español**
+
+14. **Pre-entrega final** — antes de marcar tarea como completa, todas las verificaciones relevantes (reglas 8, 12) deben pasar sin errores. Si el cambio es exclusivamente documental (solo archivos `.md`), omitir verificaciones.
+
+15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
 
 ## Gaps Conocidos
 

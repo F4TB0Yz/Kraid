@@ -1,6 +1,7 @@
 import { SplitScreenLayout } from './core/presentation/layouts/SplitScreenLayout';
 import { ChatPanel } from './features/chat/presentation/components/ChatPanel';
 import { MarkdownCanvas } from './features/canvas/presentation/components/MarkdownCanvas';
+import { MemoryViewer } from './features/memory/presentation/components/MemoryViewer';
 import { ThemeProvider } from './features/settings/presentation/components/ThemeProvider';
 import { SettingsModal } from './features/settings/presentation/components/SettingsModal';
 import { CommandPalette } from './core/presentation/components/CommandPalette';
@@ -12,6 +13,7 @@ function App() {
       <SplitScreenLayout
         leftPanel={<ChatPanel />}
         rightPanel={<MarkdownCanvas />}
+        memoryPanel={<MemoryViewer />}
       />
       <SettingsModal />
       <CommandPalette />

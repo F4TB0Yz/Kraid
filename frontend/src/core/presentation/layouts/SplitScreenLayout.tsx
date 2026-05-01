@@ -1,19 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MenuIcon, PanelRightIcon } from '../components/icons';
+import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
 import { Sidebar } from '../components/Sidebar';
+
+type RightPanelMode = 'canvas' | 'memory' | 'closed';
 
 interface SplitScreenLayoutProps {
   leftPanel: React.ReactNode;
   rightPanel: React.ReactNode;
+  memoryPanel: React.ReactNode;
 }
 
 export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
   leftPanel,
   rightPanel,
+  memoryPanel,
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [canvasOpen, setCanvasOpen] = useState(true);
-  const [leftWidth, setLeftWidth] = useState(42); // Percentage
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
+  const [leftWidth, setLeftWidth] = useState(42);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -22,7 +26,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 768) {
-        setCanvasOpen(false);
+        setRightPanelMode('closed');
       }
     };
     window.addEventListener('resize', handleResize);
@@ -34,7 +38,6 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
       if (!isDragging || !containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-      // Constrain width between 20% and 80%
       setLeftWidth(Math.min(Math.max(newWidth, 20), 80));
     };
 
@@ -58,10 +61,17 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     };
   }, [isDragging]);
 
+  const isRightPanelVisible = rightPanelMode !== 'closed';
+
+  const handleCanvasToggle = () =>
+    setRightPanelMode((prev) => (prev === 'canvas' ? 'closed' : 'canvas'));
+
+  const handleMemoryToggle = () =>
+    setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg relative">
-      {/* Sidebar Overlay (Mobile) / Push (Desktop) */}
-      <div 
+      <div
         className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -69,18 +79,16 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main Content Area */}
-      <div 
+      <div
         ref={containerRef}
         className={`flex h-full flex-1 transition-all duration-300 ease-in-out ${
           sidebarOpen ? 'md:ml-64' : 'ml-0'
         }`}
       >
         <div
-          style={{ width: isMobile || !canvasOpen ? '100%' : `${leftWidth}%` }}
+          style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
           className="flex h-full flex-shrink-0 flex-col bg-card z-10 transition-[width] duration-300 ease-in-out"
         >
-          {/* Left Panel Top Toolbar */}
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-bg px-2">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -89,24 +97,34 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
             >
               <MenuIcon className="h-5 w-5" />
             </button>
-            
-            <button
-              onClick={() => setCanvasOpen(!canvasOpen)}
-              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                canvasOpen ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-              }`}
-              aria-label="Toggle Canvas"
-            >
-              <PanelRightIcon className="h-5 w-5" />
-            </button>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCanvasToggle}
+                className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                  rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                }`}
+                aria-label="Toggle Canvas"
+              >
+                <PanelRightIcon className="h-5 w-5" />
+              </button>
+              <button
+                onClick={handleMemoryToggle}
+                className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                  rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                }`}
+                aria-label="Toggle Memory Viewer"
+              >
+                <BrainIcon className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-hidden">
             {leftPanel}
           </div>
         </div>
-        
-        {/* Draggable Divider */}
-        {!isMobile && canvasOpen && (
+
+        {!isMobile && isRightPanelVisible && (
           <div
             className="w-1 cursor-col-resize hover:bg-accent/50 active:bg-accent transition-colors z-20 flex items-center justify-center"
             onMouseDown={() => setIsDragging(true)}
@@ -115,19 +133,18 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
           </div>
         )}
 
-        {/* Right Panel (Canvas) */}
-        <div 
+        <div
           className={`min-w-0 flex-1 bg-bg transition-all duration-300 ease-in-out ${
-            !canvasOpen ? 'opacity-0 hidden' : 'opacity-100'
+            !isRightPanelVisible ? 'opacity-0 hidden' : 'opacity-100'
           }`}
         >
-          {rightPanel}
+          {rightPanelMode === 'canvas' && rightPanel}
+          {rightPanelMode === 'memory' && memoryPanel}
         </div>
       </div>
 
-      {/* Backdrop for mobile */}
       {sidebarOpen && (
-        <div 
+        <div
           className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
