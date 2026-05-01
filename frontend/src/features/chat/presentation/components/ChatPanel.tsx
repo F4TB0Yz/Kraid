@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { useSettingsStore } from '../../../settings/presentation/store/settingsStore';
 import { useConversationStore } from '../../../conversations/presentation/store/conversationStore';
@@ -45,12 +45,13 @@ const WelcomeScreen = ({ onSuggest, agentName }: { onSuggest: (text: string) => 
 );
 
 export const ChatPanel = () => {
-  const { isLoading, error, sendMessage, clearError } = useChatStore();
+  const { isLoading, isStreaming, error, sendMessage, clearError } = useChatStore();
   const { activeConversationId, conversations, loadConversations } = useConversationStore();
   const { preferences, openSettings } = useSettingsStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollFab, setShowScrollFab] = useState(false);
+  const rafRef = useRef<number>(0);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = useMemo(() => activeConversation?.messages || [], [activeConversation?.messages]);
@@ -59,23 +60,35 @@ export const ChatPanel = () => {
     loadConversations();
   }, [loadConversations]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
-    if (!showScrollFab) {
-      scrollToBottom();
-    }
-  }, [messages, isLoading, showScrollFab]);
+    const el = scrollContainerRef.current;
+    if (!el || showScrollFab) return;
 
-  const handleScroll = () => {
-    if (!scrollContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Show FAB if we are scrolled up more than 100px from the bottom
-    const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
-    setShowScrollFab(isScrolledUp);
-  };
+    if (isStreaming) {
+      el.scrollTop = el.scrollHeight;
+      const interval = setInterval(() => {
+        el.scrollTop = el.scrollHeight;
+      }, 40);
+      return () => clearInterval(interval);
+    }
+
+    scrollToBottom();
+  }, [messages, isLoading, isStreaming, showScrollFab, scrollToBottom]);
+
+  const handleScroll = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      if (!scrollContainerRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
+      setShowScrollFab(isScrolledUp);
+    });
+  }, []);
 
   const statusColor = error ? 'bg-error' : isLoading ? 'bg-amber-500' : 'bg-green-500';
 
@@ -118,7 +131,7 @@ export const ChatPanel = () => {
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex flex-1 flex-col overflow-y-auto px-4 py-5"
+        className="flex flex-1 flex-col overflow-y-auto px-4 py-5 contain-content"
       >
         {messages.length === 0 && !isLoading ? (
           <WelcomeScreen onSuggest={sendMessage} agentName={preferences.agentName} />

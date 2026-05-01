@@ -85,9 +85,9 @@
 [data-accent="gold"] { --accent: var(--color-gold-preview); }
 [data-accent="terracotta"] { --accent: var(--color-terracotta-preview); }
 
-html[data-font-size="compact"] { font-size: 14px; }
-html[data-font-size="default"] { font-size: 16px; }
-html[data-font-size="comfortable"] { font-size: 18px; }
+html[data-font-size="compact"] { font-size: 12px; }
+html[data-font-size="default"] { font-size: 14px; }
+html[data-font-size="comfortable"] { font-size: 16px; }
 
 html {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -140,6 +140,11 @@ html {
 
 .animate-message-slide-up {
   animation: message-slide-up 0.3s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+.contain-content {
+  contain: content;
 }
 
 /* Prose warm palette */

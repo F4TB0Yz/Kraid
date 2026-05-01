@@ -33,7 +33,7 @@ export const Sidebar = ({ onClose }: SidebarProps) => {
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-card border-r border-border text-text">
+    <div className="flex h-full w-full flex-col bg-card text-text">
       <div className="flex flex-col gap-4 p-4">
         <button
           onClick={handleNewChat}

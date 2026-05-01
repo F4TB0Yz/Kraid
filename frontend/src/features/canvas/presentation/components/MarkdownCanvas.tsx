@@ -122,7 +122,7 @@ export const MarkdownCanvas = () => {
   return (
     <div className="flex h-full flex-col bg-bg text-text">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-3">
+      <div className="flex items-center justify-between border-b border-border-cream px-6 py-3">
         <h2 className="font-serif text-base font-medium truncate">
           {document?.title ?? 'Document'}
         </h2>

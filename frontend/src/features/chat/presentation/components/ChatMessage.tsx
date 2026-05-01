@@ -16,6 +16,31 @@ interface ChatMessageProps {
   message: Message;
 }
 
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '');
+    const isInline = !match && !String(children).includes('\n');
+    
+    return !isInline ? (
+      <div className="rounded-lg overflow-hidden border border-border my-4">
+        <SyntaxHighlighter
+          style={materialLight}
+          language={match?.[1] || 'text'}
+          PreTag="div"
+          customStyle={{ margin: 0, background: 'transparent', fontSize: '0.85rem' }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
+    ) : (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+};
+
 export const ChatMessage = ({ message }: ChatMessageProps) => {
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState(false);
@@ -56,31 +81,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
     hour: '2-digit',
     minute: '2-digit',
   });
-
-  const markdownComponents: Components = {
-    code({ className, children, ...props }) {
-      const match = /language-(\w+)/.exec(className || '');
-      const isInline = !match && !String(children).includes('\n');
-      
-      return !isInline ? (
-        <div className="rounded-lg overflow-hidden border border-border my-4">
-          <SyntaxHighlighter
-            style={materialLight}
-            language={match?.[1] || 'text'}
-            PreTag="div"
-            customStyle={{ margin: 0, background: 'transparent', fontSize: '0.85rem' }}
-            {...props}
-          >
-            {String(children).replace(/\n$/, '')}
-          </SyntaxHighlighter>
-        </div>
-      ) : (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    }
-  };
 
   if (message.role === 'user') {
     return (

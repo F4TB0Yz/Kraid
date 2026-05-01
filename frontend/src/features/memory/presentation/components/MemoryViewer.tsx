@@ -11,7 +11,7 @@ export const MemoryViewer = () => {
   }, [loadFiles]);
 
   return (
-    <div className="flex h-full w-full bg-bg">
+    <div className="flex h-full w-full bg-card">
       <MemoryFileList />
       <MemoryFileContent />
     </div>

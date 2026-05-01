@@ -59,8 +59,8 @@ export const MemoryFileList = () => {
   }, [files, activeFilter, searchQuery]);
 
   return (
-    <div className="flex w-[280px] shrink-0 flex-col border-r border-border bg-card">
-      <div className="border-b border-border px-4 py-3">
+    <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
+      <div className="border-b border-border-cream px-4 py-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-text">Memory Files</h3>
           <span className="rounded-full bg-warm-sand px-2 py-0.5 text-xs text-olive-gray">
@@ -69,7 +69,7 @@ export const MemoryFileList = () => {
         </div>
       </div>
 
-      <div className="border-b border-border px-4 py-3">
+      <div className="border-b border-border-cream px-4 py-3">
         <div className="relative">
           <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-warm" />
           <input
@@ -82,7 +82,7 @@ export const MemoryFileList = () => {
         </div>
       </div>
 
-      <div className="flex gap-1.5 border-b border-border px-4 py-2.5 flex-wrap">
+      <div className="flex gap-1.5 border-b border-border-cream px-4 py-2.5 flex-wrap">
         {FILE_TYPES.map((t) => (
           <button
             key={t.value}

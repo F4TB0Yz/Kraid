@@ -70,29 +70,31 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg relative">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg p-2 md:p-3 relative">
       <div
         className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <Sidebar onClose={() => setSidebarOpen(false)} />
+        <div className="flex-1 m-2 md:m-3 rounded-2xl ring-1 ring-border-warm overflow-hidden bg-card">
+          <Sidebar onClose={() => setSidebarOpen(false)} />
+        </div>
       </div>
 
       <div
         ref={containerRef}
-        className={`flex h-full flex-1 transition-all duration-300 ease-in-out ${
+        className={`flex h-full flex-1 gap-3 transition-all duration-300 ease-in-out ${
           sidebarOpen ? 'md:ml-64' : 'ml-0'
         }`}
       >
         <div
           style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
-          className="flex h-full flex-shrink-0 flex-col bg-card z-10 transition-[width] duration-300 ease-in-out"
+          className={`flex h-full flex-shrink-0 flex-col bg-card z-10 min-w-0 ${isDragging ? '' : 'transition-[width] duration-300 ease-in-out'} ${isRightPanelVisible ? 'will-change-[width]' : ''} rounded-none md:rounded-2xl ring-1 ring-border-warm overflow-hidden`}
         >
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-bg px-2">
+          <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
               aria-label="Toggle Sidebar"
             >
               <MenuIcon className="h-5 w-5" />
@@ -101,7 +103,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
             <div className="flex items-center gap-1">
               <button
                 onClick={handleCanvasToggle}
-                className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                   rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
                 }`}
                 aria-label="Toggle Canvas"
@@ -110,7 +112,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
               </button>
               <button
                 onClick={handleMemoryToggle}
-                className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                   rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
                 }`}
                 aria-label="Toggle Memory Viewer"
@@ -126,15 +128,16 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
         {!isMobile && isRightPanelVisible && (
           <div
-            className="w-1 cursor-col-resize hover:bg-accent/50 active:bg-accent transition-colors z-20 flex items-center justify-center"
+            className="flex items-center justify-center cursor-col-resize transition-colors z-20"
+            style={{ width: '16px' }}
             onMouseDown={() => setIsDragging(true)}
           >
-            <div className="h-8 w-1 rounded-full bg-border" />
+            <div className="h-10 w-0.5 rounded-full transition-colors bg-ring-warm/0 hover:bg-ring-warm/40" />
           </div>
         )}
 
         <div
-          className={`min-w-0 flex-1 bg-bg transition-all duration-300 ease-in-out ${
+          className={`min-w-0 flex-1 bg-card transition-all duration-300 ease-in-out rounded-none md:rounded-2xl ring-1 ring-border-warm overflow-hidden ${
             !isRightPanelVisible ? 'opacity-0 hidden' : 'opacity-100'
           }`}
         >

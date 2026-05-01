@@ -8,7 +8,7 @@ interface UseStreamingTextOptions {
 
 export function useStreamingText(
   fullText: string,
-  { enabled = true, speed = 3, onComplete }: UseStreamingTextOptions = {}
+  { enabled = true, speed = 5, onComplete }: UseStreamingTextOptions = {}
 ) {
   const [displayedText, setDisplayedText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -40,8 +40,8 @@ export function useStreamingText(
         setIsStreaming(true);
       }
 
-      // Update every ~30ms for a natural typing feel
-      if (elapsed > 30 || currentIndex.current === 0) {
+      // Update every ~40ms for a natural typing feel
+      if (elapsed > 40 || currentIndex.current === 0) {
         lastUpdateTime.current = time;
         // Randomize speed slightly for a more human feel
         const charsToAdd = Math.max(1, Math.floor(Math.random() * speed) + 1);
