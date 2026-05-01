@@ -7,6 +7,9 @@ dist-ssr/
 .env.*
 !.env.example
 
+# Vite
+.vite/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -14,3 +17,8 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# IDE / Tools
+.claude/worktrees/
+.vscode/
+.idea/
