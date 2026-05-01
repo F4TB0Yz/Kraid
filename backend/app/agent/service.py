@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 from app.agent.tools import tool_registry
+from app.agent.context.user_context import build_user_context_block
 
 EVENT_TOOL_CALL_START = "tool_call_start"
 EVENT_TOOL_CALL_END = "tool_call_end"
@@ -15,6 +16,29 @@ EVENT_THINKING_DELTA = "thinking_delta"
 EVENT_THINKING_END = "thinking_end"
 EVENT_DONE = "done"
 
+BASE_PROMPT = """You are Kraid, an AI coding assistant. You have access to tools:
+- canvas: create, read, edit, list documents
+- memory: read, write, list markdown memory files
+- fs: read, write, list, search files in the repo
+
+Use tools when needed. Be concise and helpful."""
+
+AUTO_MEMORY_INSTRUCTIONS = """
+Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
+Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+
+Reglas para guardar memoria:
+- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
+- Usa el 'type' correcto:
+  - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
+  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
+  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
+  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
+- Qué NO guardar:
+  - Tokens de API o secretos.
+  - Estados temporales (ej: "estoy reiniciando el server").
+  - Conversaciones enteras o código fuente largo.
+"""
 
 class AgentService:
     def __init__(self):
@@ -30,20 +54,18 @@ class AgentService:
     def is_ready(self) -> bool:
         return self._client is not None
 
-    async def stream(self, messages: list[dict], model: Optional[str] = None) -> AsyncIterator[str]:
+    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
         if not self._client:
             yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
             return
 
+        user_context_block = build_user_context_block(session_id)
+        
+        system_content = f"{BASE_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
+
         system_msg = {
             "role": "system",
-            "content": (
-                "You are Kraid, an AI coding assistant. You have access to tools:\n"
-                "- canvas: create, read, edit, list documents\n"
-                "- memory: read, write, list markdown memory files\n"
-                "- fs: read, write, list, search files in the repo\n\n"
-                "Use tools when needed. Be concise and helpful."
-            ),
+            "content": system_content,
         }
         full_messages = [system_msg] + messages
         model_name = model or settings.openai_model
@@ -147,6 +169,11 @@ class AgentService:
                         fn_args = json.loads(fn_args_str)
                     except json.JSONDecodeError:
                         fn_args = {"_raw": fn_args_str}
+                
+                # Inject session_id for tools that need it for cache invalidation
+                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
+                    fn_args["session_id"] = session_id
+                
                 tc_id = tc["id"]
 
                 yield json.dumps({

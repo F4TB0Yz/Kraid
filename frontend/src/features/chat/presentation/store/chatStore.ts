@@ -77,7 +77,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
 
       const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
-      const stream = httpStreamingRepository.stream(apiMessages, selectedModel);
+      const stream = httpStreamingRepository.stream(apiMessages, selectedModel, currentConvId);
       for await (const event of stream) {
         events.push(event);
 

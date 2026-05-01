@@ -4,6 +4,8 @@
 
 ### Added
 
+- **User Context System**: Implementado sistema de memoria auto-generada en `.kraid/`. El backend inyecta `PREFERENCES.md` y metadata de memorias en el system prompt (con caché TTLCache de 30 minutos). Frontend envía `session_id` en peticiones de stream para invalidación. Nuevas tools `user_memory_save` y `user_memory_delete` para guardar contexto (profile, feedback, projects, references) proactivamente.
+
 - **Model picker**: Dropdown en composer con lista dinámica desde gateway OpenAI-compatible vía `GET /api/chat/models`. `ModelPicker` con keyboard-nav (ArrowDown/Up/Enter/Escape), estado vacío "No models" y checkmark en modelo activo. `settingsStore` con persistencia en `localStorage` (`kraid:selected-model`). Caché de modelos en backend 60s.
 - **Thinking streaming real**: Backend emite `thinking_start/delta/end` durante fase de reasoning. Frontend acumula contenido en vivo en `eventsToParts`. `ThinkingBlock` auto-expandido durante streaming, auto-colapsa al terminar con duración.
 - **Tool call visibility**: `ToolCallBlock` expandido por defecto mientras `running`, auto-colapsa en `success/error`. `ModelPicker` en `ContextChips` reemplaza chip estático de modelo.

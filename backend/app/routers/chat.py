@@ -10,6 +10,7 @@ router = APIRouter()
 class StreamRequest(BaseModel):
     messages: list[dict]
     model: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @router.post("/stream")
@@ -18,7 +19,7 @@ async def chat_stream(body: StreamRequest):
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
 
     async def event_generator():
-        async for event_json in agent_service.stream(body.messages, body.model):
+        async for event_json in agent_service.stream(body.messages, body.model, body.session_id):
             yield {"event": "message", "data": event_json}
 
     return EventSourceResponse(content=event_generator())

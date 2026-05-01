@@ -7,7 +7,7 @@ from app.agent.tools.base import Tool
 
 def _memory_dir() -> Path:
     base = settings.resolved_repo_root
-    mem_dir = base / "memory"
+    mem_dir = base / ".kraid"
     mem_dir.mkdir(parents=True, exist_ok=True)
     return mem_dir
 
@@ -15,9 +15,14 @@ def _memory_dir() -> Path:
 async def memory_list_action() -> str:
     mem_dir = _memory_dir()
     files = []
-    for f in sorted(mem_dir.iterdir()):
-        if f.suffix == ".md":
-            files.append({"filename": f.name, "size": f.stat().st_size})
+    # Search recursively for markdown files in .kraid/
+    for root, dirs, filenames in os.walk(mem_dir):
+        for name in filenames:
+            if name.endswith(".md"):
+                fpath = Path(root) / name
+                rel_path = fpath.relative_to(mem_dir)
+                files.append({"filename": str(rel_path), "size": fpath.stat().st_size})
+    files = sorted(files, key=lambda x: x["filename"])
     return json.dumps(files, indent=2)
 
 
@@ -49,7 +54,7 @@ memory_read = Tool(
     parameters={
         "type": "object",
         "properties": {
-            "filename": {"type": "string", "description": "Memory filename (e.g. preferences.md)"}
+            "filename": {"type": "string", "description": "Memory filename, e.g. PREFERENCES.md, profile/rol.md"}
         },
         "required": ["filename"],
     },
@@ -78,7 +83,7 @@ memory_write = Tool(
     parameters={
         "type": "object",
         "properties": {
-            "filename": {"type": "string", "description": "Memory filename (e.g. preferences.md)"},
+            "filename": {"type": "string", "description": "Memory filename, e.g. profile/rol.md"},
             "content": {"type": "string", "description": "Markdown content"},
         },
         "required": ["filename", "content"],

@@ -22,3 +22,6 @@ env/
 .claude/worktrees/
 .vscode/
 .idea/
+
+# Kraid Context
+.kraid/

@@ -6,3 +6,4 @@ python-multipart
 openai>=1.54.0
 python-dotenv>=1.0.0
 sse-starlette>=2.1.0
+cachetools

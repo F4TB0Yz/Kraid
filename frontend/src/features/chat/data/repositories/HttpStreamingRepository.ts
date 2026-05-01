@@ -11,10 +11,14 @@ export class HttpStreamingRepository implements StreamingRepository {
   async *stream(
     messages: { role: string; content: string }[],
     model?: string,
+    sessionId?: string,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { messages };
     if (model) {
       body.model = model;
+    }
+    if (sessionId) {
+      body.session_id = sessionId;
     }
 
     const response = await fetch(`${this.apiBase}/api/chat/stream`, {
