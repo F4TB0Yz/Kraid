@@ -1,57 +1,73 @@
 import { create } from 'zustand';
 import type { Message } from '../../domain/entities/Message';
-import type { MessageRepository } from '../../data/repositories/MessageRepository';
-import { MockMessageRepository } from '../../data/repositories/MessageRepository';
-import { MessageLoadFailure, ChatDomainError } from '../../domain/errors/ChatErrors';
+import { useConversationStore } from '../../../conversations/presentation/store/conversationStore';
 
-export interface ChatState {
-  messages: Message[];
+interface ChatState {
   isLoading: boolean;
+  isStreaming: boolean;
+  streamingMessageId: string | null;
   error: string | null;
-  loadMessages: () => Promise<void>;
-  addMessage: (content: string, role: 'user' | 'assistant') => Promise<void>;
+  sendMessage: (content: string) => Promise<void>;
+  completeStreaming: () => void;
   clearError: () => void;
 }
 
-interface ChatStoreConfig {
-  repository: MessageRepository;
-}
+export const useChatStore = create<ChatState>((set) => ({
+  isLoading: false,
+  isStreaming: false,
+  streamingMessageId: null,
+  error: null,
 
-export const createChatStore = (config: ChatStoreConfig) => {
-  const { repository } = config;
-
-  return create<ChatState>((set) => ({
-    messages: [],
-    isLoading: false,
-    error: null,
-
-    loadMessages: async () => {
-      set({ isLoading: true, error: null });
-      try {
-        const messages = await repository.getAll();
-        set({ messages, isLoading: false });
-      } catch (err) {
-        const error = err instanceof ChatDomainError ? err : new MessageLoadFailure();
-        set({ error: error.message, isLoading: false });
+  sendMessage: async (content: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const convStore = useConversationStore.getState();
+      
+      let currentConvId = convStore.activeConversationId;
+      if (!currentConvId) {
+        const newConv = convStore.createNewConversation(content);
+        currentConvId = newConv.id;
       }
-    },
 
-    addMessage: async (content: string, role: 'user' | 'assistant') => {
-      set({ isLoading: true, error: null });
-      try {
-        const newMessage = await repository.add({ role, content });
-        set((state) => ({
-          messages: [...state.messages, newMessage],
-          isLoading: false,
-        }));
-      } catch (err) {
-        const error = err instanceof ChatDomainError ? err : new ChatDomainError('Failed to add message');
-        set({ error: error.message, isLoading: false });
-      }
-    },
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content,
+        timestamp: new Date(),
+      };
+      
+      convStore.addMessageToActive(userMsg);
 
-    clearError: () => set({ error: null }),
-  }));
-};
+      // Simulate thinking time
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
-export const useChatStore = createChatStore({ repository: new MockMessageRepository() });
+      const mockResponses = [
+        "Here's what I found about that.\n\n### Key Points\n- First point is very important\n- Second point helps with understanding\n\nLet me know if you need more details.",
+        "I can help with that! Here is a simple code example:\n\n```typescript\nconst x = 42;\nconsole.log('The answer is:', x);\n```\n\nThis should solve your problem.",
+        "That's an interesting question. Based on the documentation, you should approach it by breaking it down into smaller steps. First, define the problem. Second, write tests."
+      ];
+      const randomResponse = mockResponses[Math.floor(Math.random() * mockResponses.length)];
+      
+      const assistantMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: randomResponse,
+        timestamp: new Date(),
+      };
+
+      convStore.addMessageToActive(assistantMsg);
+
+      set({
+        isLoading: false,
+        isStreaming: true,
+        streamingMessageId: assistantMsg.id,
+      });
+    } catch {
+      set({ error: 'Failed to send message', isLoading: false });
+    }
+  },
+
+  completeStreaming: () => set({ isStreaming: false, streamingMessageId: null }),
+
+  clearError: () => set({ error: null }),
+}));

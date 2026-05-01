@@ -1,45 +1,72 @@
-import React, { useState } from 'react';
-import { Send } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { SendIcon } from '../../../../core/presentation/components/icons';
 
 interface ChatInputProps {
-  onSend: (content: string) => void;
+  onSend: (content: string) => Promise<void>;
   isLoading: boolean;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading }) => {
-  const [input, setInput] = useState('');
+export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
+  const [value, setValue] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (input.trim() && !isLoading) {
-      onSend(input.trim());
-      setInput('');
+  const adjustHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value);
+    adjustHeight();
+  };
+
+  const handleSubmit = async () => {
+    const trimmed = value.trim();
+    if (!trimmed || isLoading) return;
+    setValue('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    await onSend(trimmed);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void handleSubmit();
     }
   };
 
+  const hasContent = value.trim().length > 0;
+
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t border-border">
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message..."
+    <div className="px-4 pb-4 pt-2">
+      <div className="rounded-2xl border border-border-warm bg-ivory shadow-sm ring-1 ring-border-cream transition-shadow focus-within:ring-2 focus-within:ring-terracotta/20">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          placeholder="Message Kraid…"
           disabled={isLoading}
-          className="flex-1 px-4 py-2 rounded-lg border border-border bg-bg text-text-h
-                     placeholder-text focus:outline-none focus:border-accent
-                     disabled:opacity-50"
+          className="block w-full resize-none bg-transparent px-4 pb-2 pt-3 text-sm leading-relaxed text-charcoal placeholder:text-warm-silver focus:outline-none disabled:opacity-50"
         />
-        <button
-          type="submit"
-          disabled={isLoading || !input.trim()}
-          className="p-2 rounded-lg bg-accent text-white
-                     disabled:opacity-50 disabled:cursor-not-allowed
-                     hover:bg-accent/90 transition-colors"
-        >
-          <Send size={20} />
-        </button>
+        <div className="flex items-center justify-between px-3 pb-2.5">
+          <span className="text-xs text-warm-silver/70">
+            {hasContent ? '⌘↵ to send' : ''}
+          </span>
+          <button
+            onClick={() => void handleSubmit()}
+            disabled={!hasContent || isLoading}
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-terracotta text-ivory transition-colors hover:bg-coral disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            <SendIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
-    </form>
+    </div>
   );
 };

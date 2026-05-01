@@ -1,13 +1,15 @@
+export type MessageRole = 'user' | 'assistant' | 'system';
+
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: MessageRole;
   content: string;
   timestamp: Date;
 }
 
 export const createMessage = (
   id: string,
-  role: Message['role'],
+  role: MessageRole,
   content: string,
   timestamp: Date = new Date()
 ): Message => ({ id, role, content, timestamp });
