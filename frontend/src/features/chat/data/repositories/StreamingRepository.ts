@@ -11,7 +11,7 @@ export type StreamEvent =
   | { type: 'done' };
 
 export interface StreamingRepository {
-  stream(messages: { role: string; content: string }[]): AsyncGenerator<StreamEvent>;
+  stream(messages: { role: string; content: string }[], model?: string): AsyncGenerator<StreamEvent>;
 }
 
 const textDeltasToParts = (events: StreamEvent[]): StreamEvent[] => {
@@ -37,6 +37,8 @@ const textDeltasToParts = (events: StreamEvent[]): StreamEvent[] => {
 export const eventsToParts = (events: StreamEvent[]): MessagePart[] => {
   const parts: MessagePart[] = [];
   let textBuffer = '';
+  let thinkingBuffer = '';
+  let thinkingDuration = 0;
 
   const flushText = () => {
     if (textBuffer) {
@@ -51,12 +53,17 @@ export const eventsToParts = (events: StreamEvent[]): MessagePart[] => {
         textBuffer += event.content;
         break;
       case 'thinking_start':
-      case 'thinking_delta':
-      case 'thinking_end':
+        thinkingBuffer = '';
+        thinkingDuration = 0;
         flushText();
-        if (event.type === 'thinking_end') {
-          parts.push({ type: 'thinking', content: '', duration: event.duration });
-        }
+        break;
+      case 'thinking_delta':
+        thinkingBuffer += event.content;
+        flushText();
+        break;
+      case 'thinking_end':
+        thinkingDuration = event.duration;
+        flushText();
         break;
       case 'tool_call_start':
         flushText();
@@ -85,6 +92,16 @@ export const eventsToParts = (events: StreamEvent[]): MessagePart[] => {
       }
     }
   }
+
   flushText();
+
+  if (thinkingBuffer) {
+    parts.push({
+      type: 'thinking',
+      content: thinkingBuffer,
+      duration: thinkingDuration || undefined,
+    });
+  }
+
   return parts;
 };

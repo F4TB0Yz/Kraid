@@ -28,13 +28,15 @@ const STATUS_CONFIG: Record<ToolCallStatus, { icon: React.ReactNode; label: stri
 };
 
 export const ToolCallBlock = ({ tool, input, status, output }: ToolCallBlockProps) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | null>(null);
   const config = STATUS_CONFIG[status];
+  const isRunning = status === 'running';
+  const collapsed = collapsedOverride ?? !isRunning;
 
   return (
     <div className="my-3 overflow-hidden rounded-lg border border-border-warm bg-card transition-all">
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setCollapsedOverride(!collapsed)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-warm-sand"
       >
         <span className="flex items-center gap-1.5">

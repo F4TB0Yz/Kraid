@@ -22,3 +22,11 @@ async def chat_stream(body: StreamRequest):
             yield {"event": "message", "data": event_json}
 
     return EventSourceResponse(content=event_generator())
+
+
+@router.get("/models")
+async def list_models():
+    if not agent_service.is_ready:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
+    models = await agent_service.list_models()
+    return {"models": models}

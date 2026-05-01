@@ -6,16 +6,21 @@ interface ThinkingBlockProps {
 }
 
 export const ThinkingBlock = ({ content, duration }: ThinkingBlockProps) => {
-  const [collapsed, setCollapsed] = useState(true);
+  const isStreaming = duration === undefined || duration === 0;
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | null>(null);
+  const collapsed = collapsedOverride ?? !isStreaming;
 
   return (
     <div className="my-2">
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setCollapsedOverride(!collapsed)}
         className="flex items-center gap-2 text-xs text-olive-gray transition-colors hover:text-charcoal-warm"
       >
         <span className="text-warm-silver">{collapsed ? '▶' : '▼'}</span>
-        <span>Thought{duration ? ` for ${duration.toFixed(1)}s` : ''}</span>
+        <span>
+          Thought
+          {duration != null && duration > 0 ? ` for ${duration.toFixed(1)}s` : '...'}
+        </span>
       </button>
       {!collapsed && content && (
         <div className="mt-1 border-l-2 border-border-warm pl-3">

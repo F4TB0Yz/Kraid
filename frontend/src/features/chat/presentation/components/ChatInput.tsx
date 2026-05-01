@@ -179,7 +179,6 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
     <div className="px-4 pb-4 pt-2">
       <div className="relative rounded-2xl border border-border-warm bg-ivory shadow-sm ring-1 ring-border-cream transition-shadow focus-within:ring-2 focus-within:ring-terracotta/20">
         <ContextChips
-          modelName="Kraid"
           mode={mode}
           contextFiles={attachments.length}
           onModeChange={setMode}

@@ -4,6 +4,7 @@ import { useConversationStore } from '../../../conversations/presentation/store/
 import { conversationRepository } from '../../../conversations/data/repositories/ConversationRepository';
 import type { Conversation } from '../../../conversations/domain/entities/Conversation';
 import { useAgentStatusStore } from '../../../../core/presentation/store/agentStatusStore';
+import { useSettingsStore } from '../../../../core/presentation/store/settingsStore';
 import { httpStreamingRepository } from '../../data/repositories/HttpStreamingRepository';
 import { eventsToParts } from '../../data/repositories/StreamingRepository';
 
@@ -75,7 +76,8 @@ export const useChatStore = create<ChatState>((set) => ({
 
       const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
 
-      const stream = httpStreamingRepository.stream(apiMessages);
+      const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
+      const stream = httpStreamingRepository.stream(apiMessages, selectedModel);
       for await (const event of stream) {
         events.push(event);
 

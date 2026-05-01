@@ -10,11 +10,17 @@ export class HttpStreamingRepository implements StreamingRepository {
 
   async *stream(
     messages: { role: string; content: string }[],
+    model?: string,
   ): AsyncGenerator<StreamEvent> {
+    const body: Record<string, unknown> = { messages };
+    if (model) {
+      body.model = model;
+    }
+
     const response = await fetch(`${this.apiBase}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -79,6 +85,15 @@ export class HttpStreamingRepository implements StreamingRepository {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  async listModels(): Promise<{ id: string; label: string }[]> {
+    const response = await fetch(`${this.apiBase}/api/chat/models`);
+    if (!response.ok) {
+      return [];
+    }
+    const data = (await response.json()) as { models: { id: string; label: string }[] };
+    return data.models ?? [];
   }
 }
 

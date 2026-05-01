@@ -1,4 +1,5 @@
 import json
+import time as time_module
 from typing import AsyncIterator, Optional
 
 from openai import AsyncOpenAI
@@ -9,12 +10,16 @@ from app.agent.tools import tool_registry
 EVENT_TOOL_CALL_START = "tool_call_start"
 EVENT_TOOL_CALL_END = "tool_call_end"
 EVENT_TEXT_DELTA = "text_delta"
+EVENT_THINKING_START = "thinking_start"
+EVENT_THINKING_DELTA = "thinking_delta"
+EVENT_THINKING_END = "thinking_end"
 EVENT_DONE = "done"
 
 
 class AgentService:
     def __init__(self):
         self._client: AsyncOpenAI | None = None
+        self._models_cache: tuple[list[dict], float] = ([], 0.0)
         if settings.openai_api_key:
             self._client = AsyncOpenAI(
                 api_key=settings.openai_api_key,
@@ -59,21 +64,36 @@ class AgentService:
             tool_calls_buf: dict[int, dict] = {}
             text_buffer = ""
             reasoning_buffer = ""
+            thinking_started = False
+            thinking_start_time = 0.0
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta is None:
                     continue
 
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    if not thinking_started:
+                        thinking_started = True
+                        thinking_start_time = time_module.monotonic()
+                        yield json.dumps({"type": EVENT_THINKING_START})
+                    reasoning_buffer += reasoning
+                    yield json.dumps({"type": EVENT_THINKING_DELTA, "content": reasoning})
+
                 if delta.content:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
                     text_buffer += delta.content
                     yield json.dumps({"type": EVENT_TEXT_DELTA, "content": delta.content})
 
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    reasoning_buffer += reasoning
-
                 if delta.tool_calls:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
                     for tc in delta.tool_calls:
                         idx = tc.index
                         if idx not in tool_calls_buf:
@@ -88,6 +108,11 @@ class AgentService:
                                 tool_calls_buf[idx]["function"]["name"] += tc.function.name
                             if tc.function.arguments:
                                 tool_calls_buf[idx]["function"]["arguments"] += tc.function.arguments
+
+            if thinking_started:
+                elapsed = time_module.monotonic() - thinking_start_time
+                yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                thinking_started = False
 
             assistant_msg: dict = {"role": "assistant", "content": text_buffer or None}
             if reasoning_buffer:
@@ -148,6 +173,21 @@ class AgentService:
 
         yield json.dumps({"type": "error", "content": "Max tool iterations reached"})
         yield json.dumps({"type": EVENT_DONE})
+
+    async def list_models(self) -> list[dict]:
+        now = time_module.monotonic()
+        cached, timestamp = self._models_cache
+        if cached and now - timestamp < 60:
+            return cached
+        if not self._client:
+            return cached
+        try:
+            response = await self._client.models.list()
+            models = [{"id": m.id, "label": m.id} for m in response.data]
+            self._models_cache = (models, now)
+            return models
+        except Exception:
+            return cached
 
 
 agent_service = AgentService()

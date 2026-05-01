@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Model picker**: Dropdown en composer con lista dinámica desde gateway OpenAI-compatible vía `GET /api/chat/models`. `ModelPicker` con keyboard-nav (ArrowDown/Up/Enter/Escape), estado vacío "No models" y checkmark en modelo activo. `settingsStore` con persistencia en `localStorage` (`kraid:selected-model`). Caché de modelos en backend 60s.
+- **Thinking streaming real**: Backend emite `thinking_start/delta/end` durante fase de reasoning. Frontend acumula contenido en vivo en `eventsToParts`. `ThinkingBlock` auto-expandido durante streaming, auto-colapsa al terminar con duración.
+- **Tool call visibility**: `ToolCallBlock` expandido por defecto mientras `running`, auto-colapsa en `success/error`. `ModelPicker` en `ContextChips` reemplaza chip estático de modelo.
+
+### Changed
+
+- **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
+- **StatusBar**: Lee modelo activo desde `settingsStore.selectedModel` con fallback a `agentStatusStore.modelName`.
+- **chatStore**: Pasa `selectedModel` al `httpStreamingRepository.stream()`.
+- **HttpStreamingRepository**: `stream()` acepta `model` opcional. Nuevo método `listModels()`.
+- **ContextChips**: Eliminada prop `modelName`, renderiza `<ModelPicker />`.
+- **ChatInput**: Eliminado prop `modelName` del callsite de `ContextChips`.
+- **App.tsx**: `useEffect` montaje dispara `loadModels()`.
+
+### Fixed
+
+- **Thinking content vacío**: `eventsToParts` ahora acumula `thinking_delta.content` en buffer; emitía part con `content: ''`.
+- **StreamingRepository interfaz**: `stream()` ahora acepta `model?: string`.
+
 ### Fixed
 
 - **tool-call ordering**: `tool_calls_list` construido antes de `assistant_msg` (estaba referenciado sin definir). `assistant_msg` ahora se construye antes del `if not tool_calls_buf` para ambos paths (con/sin tools).

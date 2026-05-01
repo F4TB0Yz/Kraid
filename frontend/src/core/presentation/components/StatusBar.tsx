@@ -1,4 +1,5 @@
 import { useAgentStatusStore } from '../store/agentStatusStore';
+import { useSettingsStore } from '../store/settingsStore';
 
 const STATUS_DOT: Record<string, string> = {
   idle: 'bg-green-500',
@@ -16,6 +17,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 export const StatusBar = () => {
   const { status, activeTool, modelName, contextFiles, gitBranch } = useAgentStatusStore();
+  const selectedModel = useSettingsStore((s) => s.selectedModel);
+  const displayModel = selectedModel ?? modelName;
 
   return (
     <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border-cream bg-card px-3 text-[11px] text-olive-gray">
@@ -32,7 +35,7 @@ export const StatusBar = () => {
 
         <span className="text-warm-silver">·</span>
 
-        <span>{modelName}</span>
+        <span>{displayModel}</span>
 
         {contextFiles > 0 && (
           <>
