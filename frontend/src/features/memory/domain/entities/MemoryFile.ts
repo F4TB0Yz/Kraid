@@ -1,4 +1,4 @@
-export type MemoryFileType = 'user' | 'project' | 'feedback' | 'reference';
+export type MemoryFileType = 'profile' | 'projects' | 'feedback' | 'references';
 
 export interface MemoryFile {
   id: string;

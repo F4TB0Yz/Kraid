@@ -1,5 +1,6 @@
 import json
 import time as time_module
+import datetime
 from typing import AsyncIterator, Optional
 
 from openai import AsyncOpenAI
@@ -7,6 +8,8 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.agent.tools import tool_registry
 from app.agent.context.user_context import build_user_context_block
+from app.agent.context.org_context import build_org_context_snapshot
+from app.agent.prompts import DOMAIN_AGENT_PROMPT
 
 EVENT_TOOL_CALL_START = "tool_call_start"
 EVENT_TOOL_CALL_END = "tool_call_end"
@@ -16,12 +19,11 @@ EVENT_THINKING_DELTA = "thinking_delta"
 EVENT_THINKING_END = "thinking_end"
 EVENT_DONE = "done"
 
-BASE_PROMPT = """You are Kraid, an AI coding assistant. You have access to tools:
-- canvas: create, read, edit, list documents
-- memory: read, write, list markdown memory files
-- fs: read, write, list, search files in the repo
-
-Use tools when needed. Be concise and helpful."""
+BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
+- canvas: crear, leer, editar y listar documentos del canvas
+- memory: leer, escribir y listar archivos markdown en .kraid/
+- fs: leer, escribir, listar y buscar archivos en el repo
+- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
 
 AUTO_MEMORY_INSTRUCTIONS = """
 Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
@@ -42,7 +44,7 @@ Reglas para guardar memoria:
 
 class AgentService:
     def __init__(self):
-        self._client: AsyncOpenAI | None = None
+        self._client: Optional[AsyncOpenAI] = None
         self._models_cache: tuple[list[dict], float] = ([], 0.0)
         if settings.openai_api_key:
             self._client = AsyncOpenAI(
@@ -60,8 +62,11 @@ class AgentService:
             return
 
         user_context_block = build_user_context_block(session_id)
-        
-        system_content = f"{BASE_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
+        today = datetime.date.today().isoformat()
+        org_snapshot = build_org_context_snapshot()
+        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
+
+        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
 
         system_msg = {
             "role": "system",

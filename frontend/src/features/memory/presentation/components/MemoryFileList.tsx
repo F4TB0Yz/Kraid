@@ -6,31 +6,31 @@ import { Skeleton } from '../../../../core/presentation/components/Skeleton';
 
 const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
   { label: 'All', value: 'all' },
-  { label: 'User', value: 'user' },
-  { label: 'Project', value: 'project' },
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
   { label: 'Feedback', value: 'feedback' },
-  { label: 'Reference', value: 'reference' },
+  { label: 'References', value: 'references' },
 ];
 
 const typeStyles: Record<MemoryFileType, { dot: string; badge: string }> = {
-  user: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
-  project: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
+  profile: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
+  projects: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
   feedback: { dot: 'bg-amber-400', badge: 'bg-amber-400/10 text-amber-700' },
-  reference: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
+  references: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
 };
 
 const typeLabels: Record<MemoryFileType, string> = {
-  user: 'User',
-  project: 'Project',
+  profile: 'Profile',
+  projects: 'Projects',
   feedback: 'Feedback',
-  reference: 'Reference',
+  references: 'References',
 };
 
 const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
-  { label: 'User', value: 'user' },
-  { label: 'Project', value: 'project' },
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
   { label: 'Feedback', value: 'feedback' },
-  { label: 'Reference', value: 'reference' },
+  { label: 'References', value: 'references' },
 ];
 
 const formatRelativeTime = (date: Date): string => {

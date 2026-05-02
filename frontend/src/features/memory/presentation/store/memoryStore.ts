@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
 import type { MemoryRepository } from '../../data/repositories/MemoryRepository';
-import { mockMemoryRepository } from '../../data/repositories/MemoryRepository';
+import { httpMemoryRepository } from '../../data/repositories/HttpMemoryRepository';
 
 interface MemoryState {
   files: MemoryFile[];
@@ -16,7 +16,7 @@ interface MemoryState {
   setEditing: (editing: boolean) => void;
 }
 
-export const createMemoryStore = (repository: MemoryRepository = mockMemoryRepository) =>
+export const createMemoryStore = (repository: MemoryRepository = httpMemoryRepository) =>
   create<MemoryState>((set) => ({
     files: [],
     selectedFileId: null,
