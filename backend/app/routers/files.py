@@ -6,7 +6,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.agent.context.user_context import get_kraid_dir
 from app.services.memory_watcher import watcher
 from app.services.file_graph import file_graph_instance, FILE_TYPES
-from app.services.wiki_links import extract_wiki_links, build_frontmatter
+from app.services.wiki_links import extract_wiki_links, parse_frontmatter, build_frontmatter
 import os
 
 router = APIRouter()
@@ -121,8 +121,6 @@ async def create_file(data: FileCreate):
             _create_stub_for_link(link)
             
     # Quick return based on what we just wrote
-    # Parse project from frontmatter if present
-    from app.services.wiki_links import parse_frontmatter
     fm, _ = parse_frontmatter(data.content)
     project = fm.get("project") or None
 
@@ -149,14 +147,7 @@ async def update_file(slug: str, data: FileUpdate):
     filepath = node.filepath
     
     if data.content is not None:
-        fm, body = parse_frontmatter(data.content)
-        fm["name"] = data.name or node.name
-        fm["type"] = data.type or node.type
-        if data.project is not None:
-            fm["project"] = data.project
-        full_content = f"{build_frontmatter(fm)}\n\n{body.strip()}\n"
-        filepath.write_text(full_content, encoding="utf-8")
-        # Auto-create links
+        filepath.write_text(data.content, encoding="utf-8")
         links = extract_wiki_links(data.content)
         for link in links:
             if link not in graph and link != slug:
