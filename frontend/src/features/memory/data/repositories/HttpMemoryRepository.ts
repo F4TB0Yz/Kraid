@@ -8,7 +8,7 @@ export class HttpMemoryRepository implements MemoryRepository {
     const res = await fetch(API_URL);
     if (!res.ok) throw new Error('Failed to fetch memory files');
     const data = await res.json();
-    return data.map((d: any) => ({
+    return data.map((d: { lastModified: string | Date; title: string; filename: string; type: string }) => ({
       ...d,
       lastModified: new Date(d.lastModified)
     }));

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
 import { Sidebar } from '../components/Sidebar';
 import { StatusBar } from '../components/StatusBar';
+import { useSidebarStore } from '../store/sidebarStore';
 
 type RightPanelMode = 'canvas' | 'memory' | 'closed';
 
@@ -16,23 +17,26 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
   rightPanel,
   memoryPanel,
 }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
   const [leftWidth, setLeftWidth] = useState(42);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  const { sidebarOpen, toggleSidebar } = useSidebarStore();
 
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 768) {
-        setRightPanelMode('closed');
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  useEffect(() => {
+    if (isMobile) {
+      requestAnimationFrame(() => setRightPanelMode('closed'));
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -74,20 +78,26 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
       <div className="flex flex-1 overflow-hidden">
         <div
-          className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
+          className={`
+            flex shrink-0 flex-col overflow-hidden transition-[width,opacity,transform] duration-300 ease-in-out z-40
+            ${isMobile
+              ? 'fixed inset-y-0 left-0 h-full'
+              : 'relative h-full'
+            }
+            ${sidebarOpen
+              ? (isMobile ? 'w-64 translate-x-0' : 'w-64 opacity-100')
+              : (isMobile ? 'w-64 -translate-x-full' : 'w-0 opacity-0')
+            }
+          `}
         >
-          <div className="m-2 flex-1 overflow-hidden rounded-2xl bg-card ring-1 ring-border-warm md:m-3">
-            <Sidebar onClose={() => setSidebarOpen(false)} />
+          <div className="m-2 flex-1 overflow-hidden rounded-2xl bg-card ring-1 ring-border-warm md:my-3 md:ml-3 md:mr-0">
+            <Sidebar onClose={() => isMobile && useSidebarStore.getState().closeSidebar()} />
           </div>
         </div>
 
         <div
           ref={containerRef}
-          className={`flex flex-1 gap-3 transition-all duration-300 ease-in-out ${
-            sidebarOpen ? 'md:ml-64' : 'ml-0'
-          }`}
+          className="flex flex-1 gap-3 transition-all duration-300 ease-in-out ml-0"
         >
           <div
             style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
@@ -97,7 +107,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
           >
             <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
               <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
+                onClick={toggleSidebar}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
                 aria-label="Toggle Sidebar"
               >
@@ -150,10 +160,10 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
           </div>
         </div>
 
-        {sidebarOpen && (
+        {isMobile && sidebarOpen && (
           <div
-            className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm md:hidden"
-            onClick={() => setSidebarOpen(false)}
+            className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm"
+            onClick={() => useSidebarStore.getState().closeSidebar()}
           />
         )}
       </div>
