@@ -12,13 +12,6 @@ const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
   { label: 'References', value: 'references' },
 ];
 
-const typeStyles: Record<MemoryFileType, { dot: string; badge: string }> = {
-  profile: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
-  projects: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
-  feedback: { dot: 'bg-amber-400', badge: 'bg-amber-400/10 text-amber-700' },
-  references: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
-};
-
 const typeLabels: Record<MemoryFileType, string> = {
   profile: 'Profile',
   projects: 'Projects',
@@ -106,7 +99,7 @@ const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: 
 };
 
 export const MemoryFileList = () => {
-  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
+  const { files, selectFile, isLoading, addFile } = useMemoryStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
   const [showNewModal, setShowNewModal] = useState(false);
@@ -199,33 +192,31 @@ export const MemoryFileList = () => {
           </div>
         ) : (
           <div className="flex flex-col gap-0.5 px-2 py-2">
-            {filteredFiles.map((file) => {
-              const styles = typeStyles[file.type];
-              return (
-                <button
-                  key={file.id}
-                  onClick={() => selectFile(file.id)}
-                  className={`group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    selectedFileId === file.id
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                  }`}
-                >
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{file.title}</div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}>
-                        {typeLabels[file.type]}
-                      </span>
-                      <span className="text-[11px] text-olive-gray">
-                        {formatRelativeTime(file.lastModified)}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+            {filteredFiles.map((file) => (
+              <button
+                key={file.id}
+                onClick={() => selectFile(file.id)}
+                className="group flex w-full flex-col items-start gap-1 border-b border-border-cream px-4 py-3 text-left transition-colors hover:bg-warm-sand"
+              >
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span className="truncate font-serif text-sm font-medium text-text">
+                    {file.title}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-warm-silver">
+                    {formatRelativeTime(file.lastModified)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-olive-gray capitalize">
+                    {typeLabels[file.type]}
+                  </span>
+                  <span className="text-warm-silver">·</span>
+                  <span className="font-mono text-[10px] text-stone-gray">
+                    {file.filename}
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </div>

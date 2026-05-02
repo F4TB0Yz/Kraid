@@ -11,9 +11,16 @@ export const MemoryViewer = () => {
   }, [loadFiles]);
 
   return (
-    <div className="flex h-full w-full bg-card">
-      <MemoryFileList />
-      <MemoryFileContent key={selectedFileId ?? 'none'} />
+    <div className="flex h-full w-full flex-col bg-card overflow-hidden">
+      {!selectedFileId ? (
+        <div className="animate-fade-in flex h-full flex-col">
+          <MemoryFileList />
+        </div>
+      ) : (
+        <div className="animate-fade-in flex h-full flex-col">
+          <MemoryFileContent key={selectedFileId} />
+        </div>
+      )}
     </div>
   );
 };

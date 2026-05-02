@@ -6,21 +6,6 @@ import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useMemoryStore } from '../store/memoryStore';
 import { EditIcon } from '../../../../core/presentation/components/icons';
 import type { Components } from 'react-markdown';
-import type { MemoryFileType } from '../../domain/entities/MemoryFile';
-
-const typeLabels: Record<MemoryFileType, string> = {
-  user: 'User',
-  project: 'Project',
-  feedback: 'Feedback',
-  reference: 'Reference',
-};
-
-const typeBadgeStyles: Record<MemoryFileType, string> = {
-  user: 'bg-blue-400/10 text-blue-600',
-  project: 'bg-accent/10 text-accent',
-  feedback: 'bg-amber-400/10 text-amber-700',
-  reference: 'bg-emerald-500/10 text-emerald-700',
-};
 
 const formatDate = (date: Date): string =>
   date.toLocaleDateString([], {
@@ -54,33 +39,25 @@ const markdownComponents: Components = {
 };
 
 export const MemoryFileContent = () => {
-  const { files, selectedFileId, isEditing, updateFile, setEditing } = useMemoryStore();
+  const { files, selectedFileId, selectFile, isEditing, updateFile, setEditing } = useMemoryStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
 
   const [localContent, setLocalContent] = useState(selectedFile?.content ?? '');
-  const [localTitle, setLocalTitle] = useState(selectedFile?.title ?? '');
 
-  const handleSave = useCallback(async (content: string, title: string) => {
+  const handleSave = useCallback(async (content: string) => {
     if (!selectedFileId || !selectedFile) return;
-    await updateFile(selectedFileId, {
-      content,
-      title: title !== selectedFile.title ? title : undefined,
-    });
+    await updateFile(selectedFileId, { content });
   }, [selectedFileId, selectedFile, updateFile]);
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setLocalContent(e.target.value);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      void handleSave(e.target.value, localTitle);
+      void handleSave(e.target.value);
     }, 1500);
-  };
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalTitle(e.target.value);
   };
 
   const toggleEdit = () => {
@@ -89,7 +66,7 @@ export const MemoryFileContent = () => {
     if (next) {
       setTimeout(() => textareaRef.current?.focus(), 50);
     } else {
-      void handleSave(localContent, localTitle);
+      void handleSave(localContent);
     }
   };
 
@@ -108,21 +85,17 @@ export const MemoryFileContent = () => {
 
   return (
     <div className="flex h-full flex-1 flex-col bg-bg text-text">
-      <div className="flex items-center justify-between border-b border-border-cream px-6 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {isEditing ? (
-            <input
-              type="text"
-              value={localTitle}
-              onChange={handleTitleChange}
-              className="rounded border border-border-warm bg-bg px-2 py-1 text-sm font-medium text-text outline-none focus:ring-2 focus:ring-accent"
-            />
-          ) : (
-            <h2 className="truncate font-serif text-base font-medium">{selectedFile.title}</h2>
-          )}
-          <span className={`inline-block shrink-0 rounded px-2 py-0.5 text-xs font-medium ${typeBadgeStyles[selectedFile.type]}`}>
-            {typeLabels[selectedFile.type]}
-          </span>
+      <div className="flex items-center justify-between border-b border-border-cream px-4 py-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => selectFile(null)}
+            className="rounded px-2 py-1 text-xs font-medium text-olive-gray transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
+          >
+            ← Back
+          </button>
+          <h2 className="truncate font-serif text-base font-medium text-text">
+            {selectedFile?.title}
+          </h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
@@ -142,13 +115,15 @@ export const MemoryFileContent = () => {
 
       <div className="flex-1 overflow-y-auto">
         {isEditing ? (
-          <textarea
-            ref={textareaRef}
-            value={localContent}
-            onChange={handleContentChange}
-            placeholder="Write your content here…"
-            className="h-full w-full resize-none bg-transparent px-10 py-8 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-olive-gray"
-          />
+          <div className="h-full px-10 py-8">
+            <textarea
+              ref={textareaRef}
+              value={localContent}
+              onChange={handleContentChange}
+              placeholder="Write your content here…"
+              className="h-full w-full resize-none bg-transparent outline-none prose font-mono text-sm leading-relaxed text-text placeholder:text-olive-gray"
+            />
+          </div>
         ) : (
           <div className="prose prose-sm max-w-none px-10 py-8 pb-32">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
