@@ -71,7 +71,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
+    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
       <div className="flex flex-1 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
