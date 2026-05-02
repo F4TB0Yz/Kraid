@@ -4,6 +4,20 @@
 
 ### Added
 
+- **ActivityLog consolidado**: Nuevo componente `ActivityLog` que reemplaza el apilamiento individual de `ThinkingBlock` y `ToolCallBlock` por una fila única que se actualiza en tiempo real durante streaming. 4 estados: thinking progress (shimmer), thinking done + tool running, tools mixed (completadas + corriendo), todo completado (collapsible con chevron). Animación `activity-switch` para transiciones de texto. Detalle expandible por item (JSON input/output de tools, contenido de thinking).
+- **toolLabels.ts**: Constantes compartidas `TOOL_LABELS`, `getToolLabel()`, `getToolKeyArgument()` extraídas de `ToolCallBlock` a `presentation/constants/toolLabels.ts`. `ToolCallBlock` actualizado para importar desde constantes.
+- **Regenerate funcional**: Nuevo método `regenerateMessage()` en `chatStore` que trunca la conversación hasta el mensaje assistant target, crea nuevo placeholder, y relanza streaming completo. Botón Regenerate en `ChatMessage` ahora llama al store real.
+
+### Changed
+
+- **chatStore**: SSE streaming loop extraído a helper modular `streamResponse()` para compartir entre `sendMessage`, `triggerGreeting`, y `regenerateMessage`. Reduce duplicación de ~200 líneas a llamadas de una línea.
+- **ChatMessage**: Parts particionados con `useMemo` en `activityParts` (thinking + tool_calls), `contentParts` (text + citations), `questionParts` (ask_user). ActivityLog reemplaza renderizado inline de ThinkingBlock/ToolCallBlock. Fork button removido (placeholder sin valor).
+- **PartRenderer**: Casos `tool_call` y `thinking` removidos (redirigidos a ActivityLog). Solo maneja `text` y `citation`.
+
+### Removed
+
+- **Fork button**: Eliminado del toolbar de acciones en `ChatMessage`. `GitForkIcon` import removido.
+
 - **Arquitectura Robusta para Tools de Agentes**: Sistema defensivo multicapa para el loop agentico.
   - **ToolResult estructurado**: Reemplazo de `str` por dataclass tipado con `is_error`, `truncated`, `execution_time_ms`, `tool_name`.
   - **Middleware Pipeline**: 3 middlewares componibles en `ToolRegistry` — CircuitBreaker ( OPEN/CLOSED/HALF_OPEN con threshold configurable y reset automático), Timeout (per-tool via `asyncio.wait_for` con defaults por tool), ResultTruncator (corte en `tool_result_max_chars=12000` con sufijo informativo).

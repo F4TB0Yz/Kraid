@@ -1,20 +1,19 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Components } from 'react-markdown';
 import type { Message, MessagePart } from '../../domain/entities/Message';
-import { KraidIcon, CopyIcon, CheckIcon, EditIcon, RefreshCwIcon, GitForkIcon } from '../../../../core/presentation/components/icons';
+import { KraidIcon, CopyIcon, CheckIcon, EditIcon, RefreshCwIcon } from '../../../../core/presentation/components/icons';
 import { useStreamingText } from '../hooks/useStreamingText';
 import { useMessageStream } from '../hooks/useMessageStream';
 import { useChatStore } from '../store/chatStore';
-import { useToastStore } from '../../../../core/presentation/store/toastStore';
 import { useCanvasStore } from '../../../canvas/presentation/store/canvasStore';
-import { ToolCallBlock } from './parts/ToolCallBlock';
-import { ThinkingBlock } from './parts/ThinkingBlock';
+import { useToastStore } from '../../../../core/presentation/store/toastStore';
 import { CitationChip } from './parts/CitationChip';
 import { QuestionBlock } from './parts/QuestionBlock';
+import { ActivityLog } from './parts/ActivityLog';
 
 interface ChatMessageProps {
   message: Message;
@@ -81,13 +80,6 @@ const markdownComponents: Components = {
 
 const PartRenderer = ({ part }: { part: MessagePart }) => {
   switch (part.type) {
-    case 'tool_call':
-      if (part.tool === 'ask_user') {
-        return <QuestionBlock input={part.input} status={part.status} output={part.output} />;
-      }
-      return <ToolCallBlock tool={part.tool} input={part.input} status={part.status} output={part.output} />;
-    case 'thinking':
-      return <ThinkingBlock content={part.content} duration={part.duration} />;
     case 'citation':
       return <CitationChip source={part.source} text={part.text} number={part.number} />;
     case 'text':
@@ -104,8 +96,7 @@ const PartRenderer = ({ part }: { part: MessagePart }) => {
 export const ChatMessage = ({ message }: ChatMessageProps) => {
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState(false);
-  const { isStreaming: storeIsStreaming, streamingMessageId, completeStreaming } = useChatStore();
-  const { addToast } = useToastStore();
+  const { isStreaming: storeIsStreaming, streamingMessageId, completeStreaming, regenerateMessage } = useChatStore();
   const { updateContent } = useCanvasStore();
 
   const isThisMessageStreaming = storeIsStreaming && streamingMessageId === message.id;
@@ -120,6 +111,8 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
       }
     },
   });
+
+  const { addToast } = useToastStore();
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -136,11 +129,7 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
   };
 
   const handleRegenerate = () => {
-    addToast('Regenerate coming soon', 'info');
-  };
-
-  const handleFork = () => {
-    addToast('Fork coming soon', 'info');
+    regenerateMessage(message.id);
   };
 
   const time = message.timestamp.toLocaleTimeString([], {
@@ -148,8 +137,24 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
     minute: '2-digit',
   });
 
-  const hasParts = isPartStreaming || (message.parts && message.parts.length > 0);
-  const displayParts = isPartStreaming ? streamParts : (message.parts ?? []);
+  const { activityParts, contentParts, questionParts } = useMemo(() => {
+    const activity: MessagePart[] = [];
+    const content: MessagePart[] = [];
+    const questions: MessagePart[] = [];
+    const displayParts = isPartStreaming ? streamParts : (message.parts ?? []);
+    for (const part of displayParts) {
+      if (part.type === 'tool_call' && part.tool === 'ask_user') {
+        questions.push(part);
+      } else if (part.type === 'thinking' || part.type === 'tool_call') {
+        activity.push(part);
+      } else {
+        content.push(part);
+      }
+    }
+    return { activityParts: activity, contentParts: content, questionParts: questions };
+  }, [isPartStreaming, streamParts, message.parts]);
+
+  const showActivityLog = isPartStreaming || activityParts.length > 0;
 
   if (message.role === 'user') {
     return (
@@ -182,22 +187,42 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
         <span className="text-xs text-warm-silver">{time}</span>
       </div>
 
-      {hasParts ? (
-        <div className="mt-1.5 flex flex-col gap-1">
-          {displayParts.map((part, index) => (
-            <PartRenderer key={`${part.type}-${index}`} part={part} />
-          ))}
-          {isPartStreaming && (
-            <span className="inline-block h-4 w-2 animate-caret-blink bg-charcoal" />
-          )}
-        </div>
-      ) : (
-        <div className="prose prose-sm mt-1.5 max-w-none text-charcoal-warm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {displayedText}
-          </ReactMarkdown>
-        </div>
-      )}
+      <div className="mt-1.5">
+        {showActivityLog && (
+          <div className={contentParts.length > 0 ? 'mb-2' : ''}>
+            <ActivityLog parts={activityParts} isStreaming={isPartStreaming} />
+          </div>
+        )}
+
+        {questionParts.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {questionParts.map((part, i) => {
+              if (part.type === 'tool_call') {
+                return <QuestionBlock key={`question-${i}`} input={part.input} status={part.status} output={part.output} />;
+              }
+              return null;
+            })}
+          </div>
+        )}
+
+        {contentParts.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            {contentParts.map((part, i) => (
+              <PartRenderer key={`content-${i}`} part={part} />
+            ))}
+          </div>
+        ) : (
+          <div className="prose prose-sm max-w-none text-charcoal-warm">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {displayedText}
+            </ReactMarkdown>
+          </div>
+        )}
+
+        {isPartStreaming && (
+          <span className="inline-block h-4 w-2 animate-caret-blink bg-charcoal" />
+        )}
+      </div>
 
       <div className="mt-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
@@ -222,13 +247,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
             >
               <RefreshCwIcon className="h-3 w-3" />
               Regenerate
-            </button>
-            <button
-              onClick={handleFork}
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-warm-silver transition-colors hover:bg-border-cream hover:text-charcoal-warm"
-            >
-              <GitForkIcon className="h-3 w-3" />
-              Fork
             </button>
           </>
         )}

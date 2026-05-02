@@ -246,6 +246,16 @@ html {
   --tw-prose-td-borders: var(--border-cream);
 }
 
+/* Activity switch for dynamic summary text */
+@keyframes activity-switch {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-activity-switch {
+  animation: activity-switch 200ms ease-out;
+}
+
 /* Spin slow for cog icon */
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
