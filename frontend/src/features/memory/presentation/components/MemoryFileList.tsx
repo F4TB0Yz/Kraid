@@ -99,7 +99,7 @@ const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: 
 };
 
 export const MemoryFileList = () => {
-  const { files, selectFile, isLoading, addFile } = useMemoryStore();
+  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
   const [showNewModal, setShowNewModal] = useState(false);
@@ -148,30 +148,28 @@ export const MemoryFileList = () => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-1.5 border-b border-border-cream px-4 py-2.5">
-        <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2 overflow-x-auto px-4 py-3 border-b border-border-cream scrollbar-hide">
           {FILE_TYPES.map((t) => (
             <button
               key={t.value}
               onClick={() => setActiveFilter(t.value)}
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ${
                 activeFilter === t.value
-                  ? 'bg-accent/10 text-accent'
-                  : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  ? 'bg-charcoal-warm text-ivory shadow-sm'
+                  : 'bg-transparent text-olive-gray ring-1 ring-border-warm hover:bg-warm-sand hover:text-text'
               }`}
             >
               {t.label}
             </button>
           ))}
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-ivory transition-colors hover:bg-coral"
+            title="New Memory"
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-olive-gray transition-colors hover:bg-accent/10 hover:text-accent"
-          title="New Memory"
-        >
-          <PlusIcon className="h-3.5 w-3.5" />
-        </button>
-      </div>
 
       <div className="flex-1 overflow-y-auto">
         {isLoading && files.length === 0 ? (
@@ -191,30 +189,31 @@ export const MemoryFileList = () => {
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5 px-2 py-2">
+          <div className="flex flex-col gap-1 px-2 py-2">
             {filteredFiles.map((file) => (
               <button
                 key={file.id}
                 onClick={() => selectFile(file.id)}
-                className="group flex w-full flex-col items-start gap-1 border-b border-border-cream px-4 py-3 text-left transition-colors hover:bg-warm-sand"
+                className={`group flex w-full flex-col items-start gap-1 rounded-xl px-4 py-3 text-left transition-colors ${
+                  selectedFileId === file.id
+                    ? 'bg-warm-sand shadow-sm ring-1 ring-ring-subtle'
+                    : 'hover:bg-warm-sand/50'
+                }`}
               >
                 <div className="flex w-full items-center justify-between gap-2">
-                  <span className="truncate font-serif text-sm font-medium text-text">
-                    {file.title}
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-olive-gray">
+                    {typeLabels[file.type]}
                   </span>
-                  <span className="shrink-0 text-[11px] text-warm-silver">
+                  <span className="shrink-0 text-[10px] text-warm-silver">
                     {formatRelativeTime(file.lastModified)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-olive-gray capitalize">
-                    {typeLabels[file.type]}
-                  </span>
-                  <span className="text-warm-silver">·</span>
-                  <span className="font-mono text-[10px] text-stone-gray">
-                    {file.filename}
-                  </span>
-                </div>
+                <span className="font-serif text-[15px] font-medium leading-tight text-text">
+                  {file.title}
+                </span>
+                <span className="font-mono text-[11px] text-stone-gray truncate max-w-full">
+                  {file.filename}
+                </span>
               </button>
             ))}
           </div>

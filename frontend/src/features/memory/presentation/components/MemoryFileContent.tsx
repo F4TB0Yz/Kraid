@@ -7,6 +7,23 @@ import { useMemoryStore } from '../store/memoryStore';
 import { EditIcon } from '../../../../core/presentation/components/icons';
 import type { Components } from 'react-markdown';
 
+const parseMemoryContent = (rawContent: string) => {
+  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+  const match = rawContent.match(frontmatterRegex);
+
+  if (!match) return { metadata: Record<string, string>, body: rawContent };
+
+  const metadata: Record<string, string> = {};
+  match[1].split('\n').forEach(line => {
+    const [key, ...rest] = line.split(':');
+    if (key && rest.length) {
+      metadata[key.trim()] = rest.join(':').trim();
+    }
+  });
+
+  return { metadata, body: match[2].trim() };
+};
+
 const formatDate = (date: Date): string =>
   date.toLocaleDateString([], {
     year: 'numeric',
@@ -46,6 +63,14 @@ export const MemoryFileContent = () => {
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
 
   const [localContent, setLocalContent] = useState(selectedFile?.content ?? '');
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  if (selectedFile?.id !== lastSelectedId) {
+    setLastSelectedId(selectedFile?.id ?? null);
+    setLocalContent(selectedFile?.content ?? '');
+  }
+
+  const { metadata, body } = parseMemoryContent(localContent);
 
   const handleSave = useCallback(async (content: string) => {
     if (!selectedFileId || !selectedFile) return;
@@ -84,33 +109,37 @@ export const MemoryFileContent = () => {
   }
 
   return (
-    <div className="flex h-full flex-1 flex-col bg-bg text-text">
-      <div className="flex items-center justify-between border-b border-border-cream px-4 py-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => selectFile(null)}
-            className="rounded px-2 py-1 text-xs font-medium text-olive-gray transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
-          >
-            ← Back
-          </button>
-          <h2 className="truncate font-serif text-base font-medium text-text">
-            {selectedFile?.title}
-          </h2>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
-          <button
-            onClick={toggleEdit}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              isEditing
-                ? 'bg-accent text-ivory'
-                : 'text-charcoal-warm hover:bg-warm-sand'
-            }`}
-          >
-            <EditIcon className="h-3.5 w-3.5" />
-            {isEditing ? 'Done' : 'Edit'}
-          </button>
-        </div>
+    <div className="flex h-full flex-1 flex-col bg-transparent text-text">
+      <div className="flex flex-col border-b border-border-cream px-6 py-5">
+        <button
+          onClick={() => selectFile(null)}
+          className="mb-4 self-start rounded px-2 py-1 text-xs font-medium text-olive-gray transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
+        >
+          ← Back
+        </button>
+        <h2 className="font-serif text-2xl font-medium text-text">
+          {metadata.name || selectedFile.title}
+        </h2>
+        {metadata.description && (
+          <p className="mt-2 text-sm text-stone-gray font-sans">
+            {metadata.description}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-1 items-center justify-between border-b border-border-cream px-6 py-3">
+        <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
+        <button
+          onClick={toggleEdit}
+          className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            isEditing
+              ? 'bg-accent text-ivory'
+              : 'text-charcoal-warm hover:bg-warm-sand'
+          }`}
+        >
+          <EditIcon className="h-3.5 w-3.5" />
+          {isEditing ? 'Done' : 'Edit'}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -125,9 +154,9 @@ export const MemoryFileContent = () => {
             />
           </div>
         ) : (
-          <div className="prose prose-sm max-w-none px-10 py-8 pb-32">
+          <div className="prose prose-sm max-w-none px-6 py-8 pb-32">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {localContent}
+              {body}
             </ReactMarkdown>
           </div>
         )}
