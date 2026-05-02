@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Saludo proactivo**: Nuevo sistema de bienvenida automática. El backend (`AgentService.stream()`) inyecta un "Prompt de Activación" cuando `messages` está vacío, aprovechando el contexto de usuario ya construido (`build_user_context_block`). El frontend orquesta el saludo vía `triggerGreeting()` en `chatStore` — crea una conversación, envía `messages: []` al backend, y gestiona la respuesta como primer mensaje. `ChatPanel` dispara el saludo al detectar que no hay conversaciones existentes ni activas, ocultando la `WelcomeScreen` en cuanto el stream comienza.
+
 - **User Context System**: Implementado sistema de memoria auto-generada en `.kraid/`. El backend inyecta `PREFERENCES.md` y metadata de memorias en el system prompt (con caché TTLCache de 30 minutos). Frontend envía `session_id` en peticiones de stream para invalidación. Nuevas tools `user_memory_save` y `user_memory_delete` para guardar contexto (profile, feedback, projects, references) proactivamente.
 
 - **Model picker**: Dropdown en composer con lista dinámica desde gateway OpenAI-compatible vía `GET /api/chat/models`. `ModelPicker` con keyboard-nav (ArrowDown/Up/Enter/Escape), estado vacío "No models" y checkmark en modelo activo. `settingsStore` con persistencia en `localStorage` (`kraid:selected-model`). Caché de modelos en backend 60s.
@@ -12,6 +14,9 @@
 
 ### Changed
 
+- **SplitScreenLayout refactorizado**: Chat como lienzo base (bg-bg transparente). Sidebar y paneles derecho mantienen estilo tarjeta flotante (bg-card, rounded-2xl, ring-border-warm).
+- **ChatPanel**: Fondo transparente, área de mensajes con max-w-3xl centrado y pb-48 para间距. Input flotante centrado con pointer-events-none wrapper.
+- **StatusBar**: Convertido a elemento flotante (absolute bottom-2 right-4 z-20) con fondo transparente.
 - **Viewport dinámico**: `SplitScreenLayout` usa `h-dvh` (dynamic viewport height) en vez de `h-screen`. Evita que toolbars móviles recorten la interfaz inferior al recalcular altura real utilizable.
 - **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
 - **StatusBar**: Lee modelo activo desde `settingsStore.selectedModel` con fallback a `agentStatusStore.modelName`.

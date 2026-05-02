@@ -72,7 +72,15 @@ class AgentService:
             "role": "system",
             "content": system_content,
         }
-        full_messages = [system_msg] + messages
+
+        if not messages:
+            activation_prompt = {
+                "role": "user",
+                "content": "El usuario ha iniciado una nueva sesión. Salúdalo de forma cálida y proactiva basándose en su perfil y proyectos actuales. No menciones que estás leyendo su perfil, simplemente sé útil"
+            }
+            full_messages = [system_msg, activation_prompt]
+        else:
+            full_messages = [system_msg] + messages
         model_name = model or settings.openai_model
         tools = tool_registry.openai_schemas()
         iteration_count = 0

@@ -101,11 +101,11 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
         >
           <div
             style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
-            className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden rounded-none bg-card md:rounded-2xl ${
+            className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-transparent ${
               isDragging ? '' : 'transition-[width] duration-300 ease-in-out'
-            } ${isRightPanelVisible ? 'will-change-[width]' : ''} ring-1 ring-border-warm`}
+            } ${isRightPanelVisible ? 'will-change-[width]' : ''}`}
           >
-            <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
+            <div className="flex h-14 shrink-0 items-center justify-between bg-transparent px-3">
               <button
                 onClick={toggleSidebar}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
@@ -135,7 +135,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
               {leftPanel}
             </div>
           </div>

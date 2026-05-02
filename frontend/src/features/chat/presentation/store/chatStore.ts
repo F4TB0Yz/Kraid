@@ -15,11 +15,12 @@ interface ChatState {
   streamingParts: MessagePart[];
   error: string | null;
   sendMessage: (content: string) => Promise<void>;
+  triggerGreeting: () => Promise<void>;
   completeStreaming: () => void;
   clearError: () => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   isStreaming: false,
   streamingMessageId: null,
@@ -144,6 +145,111 @@ export const useChatStore = create<ChatState>((set) => ({
       useAgentStatusStore.getState().setStatus('idle');
     } catch {
       set({ error: 'Failed to send message', isLoading: false, isStreaming: false });
+      useAgentStatusStore.getState().setStatus('idle');
+    }
+  },
+
+  triggerGreeting: async () => {
+    if (get().isStreaming) return;
+
+    set({ isLoading: true, error: null });
+    try {
+      const convStore = useConversationStore.getState();
+
+      const newId = crypto.randomUUID();
+      const newConv: Conversation = {
+        id: newId,
+        title: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      conversationRepository.save(newConv);
+      convStore.loadConversations();
+      convStore.setActiveConversation(newId);
+
+      const assistantId = crypto.randomUUID();
+      const assistantMsg: Message = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        parts: [],
+      };
+      convStore.addMessageToActive(assistantMsg);
+
+      set({
+        isLoading: false,
+        isStreaming: true,
+        streamingMessageId: assistantId,
+        streamingParts: [],
+      });
+
+      const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
+      const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
+
+      const stream = httpStreamingRepository.stream([], selectedModel, newId);
+      for await (const event of stream) {
+        events.push(event);
+
+        switch (event.type) {
+          case 'thinking_start':
+            useAgentStatusStore.getState().setStatus('thinking');
+            break;
+          case 'tool_call_start':
+            useAgentStatusStore.getState().setStatus('running_tool');
+            useAgentStatusStore.getState().setActiveTool(event.tool);
+            break;
+          case 'tool_call_end':
+            useAgentStatusStore.getState().setActiveTool(null);
+            break;
+          case 'text_delta':
+            useAgentStatusStore.getState().setStatus('streaming');
+            break;
+          case 'error':
+            useAgentStatusStore.getState().setError(event.content);
+            break;
+        }
+
+        const currentParts = eventsToParts(events);
+        set({ streamingParts: currentParts });
+      }
+
+      const finalParts = eventsToParts(events);
+      const fullText = finalParts
+        .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.content)
+        .join('');
+
+      const updatedMessage: Message = {
+        ...assistantMsg,
+        content: fullText,
+        parts: finalParts,
+      };
+
+      const finalConvState = useConversationStore.getState();
+      const convs = finalConvState.conversations;
+      const convIdx = convs.findIndex((c) => c.id === newId);
+      if (convIdx >= 0) {
+        const currentConv = convs[convIdx];
+        const updatedConv: Conversation = {
+          ...currentConv,
+          messages: currentConv.messages.map((m) => (m.id === assistantId ? updatedMessage : m)),
+          updatedAt: new Date(),
+        };
+        conversationRepository.save(updatedConv);
+        finalConvState.loadConversations();
+      }
+
+      set({
+        isStreaming: false,
+        streamingMessageId: null,
+        streamingParts: [],
+      });
+
+      useAgentStatusStore.getState().setStatus('idle');
+    } catch {
+      set({ error: 'Failed to trigger greeting', isLoading: false, isStreaming: false });
       useAgentStatusStore.getState().setStatus('idle');
     }
   },

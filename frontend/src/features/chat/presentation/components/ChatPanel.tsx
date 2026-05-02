@@ -45,13 +45,15 @@ const WelcomeScreen = ({ onSuggest, agentName }: { onSuggest: (text: string) => 
 );
 
 export const ChatPanel = () => {
-  const { isLoading, isStreaming, error, sendMessage, clearError } = useChatStore();
+  const { isLoading, isStreaming, error, sendMessage, triggerGreeting, clearError } = useChatStore();
   const { activeConversationId, conversations, loadConversations } = useConversationStore();
   const { preferences, openSettings } = useSettingsStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollFab, setShowScrollFab] = useState(false);
   const rafRef = useRef<number>(0);
+  const greetingTriggeredRef = useRef(false);
+  const prevActiveIdRef = useRef<string | null>(null);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = useMemo(() => activeConversation?.messages || [], [activeConversation?.messages]);
@@ -79,6 +81,23 @@ export const ChatPanel = () => {
     scrollToBottom();
   }, [messages, isLoading, isStreaming, showScrollFab, scrollToBottom]);
 
+  useEffect(() => {
+    const prevId = prevActiveIdRef.current;
+    prevActiveIdRef.current = activeConversationId;
+
+    if (activeConversationId === null && prevId !== null) {
+      greetingTriggeredRef.current = false;
+    }
+
+    const isNewChatClick = activeConversationId === null && prevId !== null;
+    const isFirstTime = prevId === null && conversations.length === 0;
+
+    if (!greetingTriggeredRef.current && (isNewChatClick || isFirstTime) && !isStreaming && !isLoading) {
+      greetingTriggeredRef.current = true;
+      triggerGreeting();
+    }
+  }, [activeConversationId, isStreaming, isLoading, conversations.length, triggerGreeting]);
+
   const handleScroll = useCallback(() => {
     if (rafRef.current) return;
     rafRef.current = requestAnimationFrame(() => {
@@ -93,7 +112,7 @@ export const ChatPanel = () => {
   const statusColor = error ? 'bg-error' : isLoading ? 'bg-amber-500' : 'bg-green-500';
 
   return (
-    <div className="flex h-full flex-col bg-card relative">
+    <div className="flex h-full flex-col relative bg-transparent">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border-cream px-4 py-3 shrink-0">
         <div className="flex items-center gap-2.5">
@@ -131,24 +150,26 @@ export const ChatPanel = () => {
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex flex-1 flex-col overflow-y-auto px-4 py-5 contain-content"
+        className="flex flex-1 flex-col overflow-y-auto px-4 pt-5 pb-48 contain-content"
       >
-        {messages.length === 0 && !isLoading ? (
-          <WelcomeScreen onSuggest={sendMessage} agentName={preferences.agentName} />
-        ) : (
-          <div className="flex flex-col gap-6">
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
-            {isLoading && <TypingIndicator />}
-            <div ref={bottomRef} />
-          </div>
-        )}
+        <div className="max-w-3xl mx-auto w-full flex flex-col gap-6">
+          {messages.length === 0 && !isLoading ? (
+            <WelcomeScreen onSuggest={sendMessage} agentName={preferences.agentName} />
+          ) : (
+            <>
+              {messages.map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
+              {isLoading && <TypingIndicator />}
+              <div ref={bottomRef} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Scroll to bottom FAB */}
       {showScrollFab && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 animate-message-slide-up" style={{ animationDuration: '0.2s' }}>
+        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-10 animate-message-slide-up" style={{ animationDuration: '0.2s' }}>
           <button
             onClick={scrollToBottom}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-bg shadow-md ring-1 ring-border text-charcoal-warm transition-colors hover:text-accent hover:bg-warm-sand"
@@ -160,8 +181,12 @@ export const ChatPanel = () => {
       )}
 
       {/* Input */}
-      <div className="shrink-0">
-        <ChatInput onSend={sendMessage} isLoading={isLoading} />
+      <div className="absolute bottom-6 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
+        <div className="w-full max-w-3xl pointer-events-auto animate-message-slide-up">
+          <div className="bg-card rounded-2xl shadow-sm ring-1 ring-border-warm">
+            <ChatInput onSend={sendMessage} isLoading={isLoading} />
+          </div>
+        </div>
       </div>
     </div>
   );

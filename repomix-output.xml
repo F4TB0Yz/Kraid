@@ -215,659 +215,6 @@ CLAUDE.md
 <files>
 This section contains the contents of the repository's files.
 
-<file path="backend/app/agent/context/org_context.py">
-from pathlib import Path
-from app.agent.context.user_context import get_kraid_dir
-
-ORG_TYPES = ("project", "task", "note", "custom")
-
-
-def _parse_frontmatter(filepath: Path) -> dict:
-    try:
-        content = filepath.read_text(encoding="utf-8")
-        lines = content.splitlines()
-        if not lines or lines[0].strip() != "---":
-            return {"name": filepath.stem}
-        result = {}
-        for line in lines[1:]:
-            if line.strip() == "---":
-                break
-            if ":" in line:
-                key, _, val = line.partition(":")
-                result[key.strip()] = val.strip()
-        return result
-    except Exception:
-        return {"name": filepath.stem}
-
-
-def build_org_context_snapshot() -> str:
-    kraid_dir = get_kraid_dir()
-    org_dir = kraid_dir / "org"
-    if not org_dir.exists():
-        return "<org_context>\nNo hay entidades organizacionales guardadas aún.\n</org_context>"
-
-    entries: list[str] = []
-    for type_name in ORG_TYPES:
-        type_dir = org_dir / type_name
-        if not type_dir.exists():
-            continue
-        for f in sorted(type_dir.glob("*.md")):
-            fm = _parse_frontmatter(f)
-            name = fm.get("name", f.stem)
-            extra_parts = []
-            if "methodology" in fm:
-                extra_parts.append(f"methodology={fm['methodology']}")
-            if "status" in fm:
-                extra_parts.append(f"status={fm['status']}")
-            if "subject" in fm:
-                extra_parts.append(f"subject={fm['subject']}")
-            extra = f" ({', '.join(extra_parts)})" if extra_parts else ""
-            entries.append(f"- [{type_name}] slug={f.stem} | name={name}{extra}")
-
-    if not entries:
-        return "<org_context>\nNo hay entidades organizacionales guardadas aún.\n</org_context>"
-
-    body = "\n".join(entries)
-    return f"<org_context>\n{body}\n</org_context>"
-</file>
-
-<file path="backend/app/agent/tools/org_tools.py">
-import re
-import unicodedata
-from pathlib import Path
-from typing import Optional
-from app.agent.tools.base import Tool
-from app.agent.context.user_context import get_kraid_dir
-
-ORG_TYPES = ("project", "task", "note", "custom")
-
-_REQUIRED_FIELDS: dict[str, list[str]] = {
-    "project": ["name", "methodology"],
-    "task": ["name", "subject"],
-    "note": ["name"],
-    "custom": ["name"],
-}
-
-_METHODOLOGY_BODIES = {
-    "scrum": "# Backlog\n\n# Sprint 1\n\n# Done\n",
-    "kanban": "# To Do\n\n# In Progress\n\n# Done\n",
-}
-
-
-def _to_kebab(text: str) -> str:
-    nfkd = unicodedata.normalize("NFKD", text)
-    ascii_text = nfkd.encode("ascii", "ignore").decode("ascii")
-    lowered = ascii_text.lower()
-    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
-
-
-def _build_frontmatter(fields: dict) -> str:
-    lines = ["---"]
-    for k, v in fields.items():
-        if isinstance(v, list):
-            lines.append(f"{k}: [{', '.join(str(i) for i in v)}]")
-        else:
-            lines.append(f"{k}: {v}")
-    lines.append("---")
-    return "\n".join(lines)
-
-
-def _read_existing(filepath: Path) -> tuple[dict, str]:
-    """Parse existing file into (frontmatter_dict, body)."""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-        lines = content.splitlines()
-        if not lines or lines[0].strip() != "---":
-            return {}, content
-        fm: dict = {}
-        end_idx = 1
-        for i, line in enumerate(lines[1:], start=1):
-            if line.strip() == "---":
-                end_idx = i + 1
-                break
-            if ":" in line:
-                k, _, v = line.partition(":")
-                fm[k.strip()] = v.strip()
-        body = "\n".join(lines[end_idx:])
-        return fm, body
-    except Exception:
-        return {}, ""
-
-
-async def org_entry_write_action(
-    type: str,
-    slug: str,
-    frontmatter: dict,
-    body: str,
-    mode: str = "create",
-) -> str:
-    if type not in ORG_TYPES:
-        return f"Error: tipo '{type}' inválido. Debe ser uno de {ORG_TYPES}."
-
-    required = _REQUIRED_FIELDS.get(type, ["name"])
-    missing = [f for f in required if f not in frontmatter]
-    if missing:
-        return f"Error: campos requeridos faltantes para tipo '{type}': {missing}"
-
-    clean_slug = _to_kebab(slug)
-    if not clean_slug:
-        return "Error: slug inválido."
-
-    # Path traversal guard
-    kraid_dir = get_kraid_dir()
-    org_dir = kraid_dir / "org" / type
-    org_dir.mkdir(parents=True, exist_ok=True)
-    filepath = (org_dir / f"{clean_slug}.md").resolve()
-    if not str(filepath).startswith(str(org_dir.resolve())):
-        return "Error: path traversal detectado."
-
-    if mode == "update" and filepath.exists():
-        existing_fm, existing_body = _read_existing(filepath)
-        merged_fm = {**existing_fm, **frontmatter}
-        final_body = body if body.strip() else existing_body
-    else:
-        merged_fm = {"name": frontmatter.get("name", clean_slug), "type": type, **frontmatter}
-        # Auto-generate body for projects based on methodology
-        if not body.strip() and type == "project":
-            methodology = frontmatter.get("methodology", "kanban")
-            final_body = _METHODOLOGY_BODIES.get(methodology, "")
-        else:
-            final_body = body
-
-    fm_str = _build_frontmatter(merged_fm)
-    full_content = f"{fm_str}\n\n{final_body.strip()}\n"
-    filepath.write_text(full_content, encoding="utf-8")
-
-    action_label = "actualizado" if mode == "update" and filepath.exists() else "creado"
-    return f"Entrada {action_label}: org/{type}/{clean_slug}.md"
-
-
-org_entry_write = Tool(
-    name="org_entry_write",
-    description=(
-        "Crea o actualiza una entrada organizacional (proyecto, tarea, nota, custom) "
-        "en el directorio .kraid/org/. Usar mode='update' para hacer merge con datos existentes."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "type": {
-                "type": "string",
-                "enum": list(ORG_TYPES),
-                "description": "Tipo de entidad.",
-            },
-            "slug": {
-                "type": "string",
-                "description": "Identificador único kebab-case (ej: 'proyecto-tesis'). Se sanitiza automáticamente.",
-            },
-            "frontmatter": {
-                "type": "object",
-                "description": (
-                    "Campos de la entidad. "
-                    "project requiere: name, methodology (scrum|kanban). "
-                    "task requiere: name, subject. "
-                    "note requiere: name. "
-                    "custom requiere: name."
-                ),
-            },
-            "body": {
-                "type": "string",
-                "description": "Cuerpo Markdown de la entidad. Para proyectos se genera automáticamente si se omite.",
-            },
-            "mode": {
-                "type": "string",
-                "enum": ["create", "update"],
-                "description": "create: sobrescribe (default). update: merge con datos existentes.",
-            },
-        },
-        "required": ["type", "slug", "frontmatter"],
-    },
-    execute=org_entry_write_action,
-)
-
-
-async def org_entry_list_action(type: Optional[str] = None) -> str:
-    kraid_dir = get_kraid_dir()
-    org_dir = kraid_dir / "org"
-    if not org_dir.exists():
-        return "No hay entidades guardadas aún."
-
-    types_to_scan = [type] if type and type in ORG_TYPES else list(ORG_TYPES)
-    lines: list[str] = []
-
-    for t in types_to_scan:
-        type_dir = org_dir / t
-        if not type_dir.exists():
-            continue
-        files = sorted(type_dir.glob("*.md"))
-        if not files:
-            continue
-        lines.append(f"\n### {t}")
-        for f in files:
-            try:
-                content = f.read_text(encoding="utf-8")
-                file_lines = content.splitlines()
-                name = f.stem
-                extra: dict = {}
-                if file_lines and file_lines[0].strip() == "---":
-                    for line in file_lines[1:]:
-                        if line.strip() == "---":
-                            break
-                        if ":" in line:
-                            k, _, v = line.partition(":")
-                            k, v = k.strip(), v.strip()
-                            if k == "name":
-                                name = v
-                            elif k in ("status", "methodology", "subject", "due"):
-                                extra[k] = v
-                extra_str = " | ".join(f"{k}={v}" for k, v in extra.items())
-                lines.append(f"- slug={f.stem} | name={name}" + (f" | {extra_str}" if extra_str else ""))
-            except Exception:
-                lines.append(f"- slug={f.stem}")
-
-    return "\n".join(lines) if lines else "No hay entidades del tipo solicitado."
-
-
-org_entry_list = Tool(
-    name="org_entry_list",
-    description="Lista las entradas organizacionales guardadas. Pasar type para filtrar por tipo.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "type": {
-                "type": "string",
-                "enum": list(ORG_TYPES),
-                "description": "Filtrar por tipo. Omitir para listar todos.",
-            },
-        },
-        "required": [],
-    },
-    execute=org_entry_list_action,
-)
-</file>
-
-<file path="backend/app/agent/prompts.py">
-DOMAIN_AGENT_PROMPT = """Eres Kraid, un asistente personal de organización. Tu función principal es ayudar al usuario a estructurar y persistir información como proyectos, tareas, notas y cualquier otro tipo de entidad personal.
-
-## CONTEXTO TEMPORAL
-Hoy es: {TODAY}
-
-## ENTIDADES EXISTENTES
-{context_snapshot}
-
-## TIPOS DE ENTIDAD
-
-### project
-- **Campos requeridos:** `name` (string), `methodology` (enum: scrum | kanban)
-- **Lógica automática:**
-  - scrum → secciones: `# Backlog`, `# Sprint 1`, `# Done`
-  - kanban → secciones: `# To Do`, `# In Progress`, `# Done`
-- **Defaults:** `status: active`, `sprint_duration_days: 14`
-
-### task
-- **Campos requeridos:** `name` (string), `subject` (string — materia o área)
-- **Campos opcionales:** `due` (ISO 8601), `weight` (porcentaje), `status` (default: pending)
-- **Cuerpo:** descripción de la entrega + checklist si aplica
-
-### note
-- **Campos requeridos:** `name` (string)
-- **Campos opcionales:** `tags` (lista de strings — inferir automáticamente del contenido)
-- **Cuerpo:** contenido libre de la nota
-
-### custom
-- **Campos requeridos:** `name` (string)
-- **Campos opcionales:** cualquier campo adicional relevante
-- **Uso:** para cualquier entidad que no encaje en los tipos anteriores
-
-## REGLAS DE COMPORTAMIENTO
-
-### Cuándo llamar `org_entry_write`
-- El usuario quiere crear o actualizar una entidad (proyecto, tarea, nota, etc.)
-- Tienes todos los datos requeridos para el tipo
-
-### Cuándo llamar `org_entry_list`
-- Antes de crear algo nuevo, verificar si ya existe un slug equivalente
-- Cuando el usuario pregunta qué tiene guardado
-
-### Cuándo NO llamar ninguna tool org_*
-- El usuario solo hace una pregunta o consulta (responder directamente)
-- El usuario pide consejo o análisis (responder directamente)
-
-### Protocolo Fail-Fast
-- Si falta un campo requerido → pregunta antes de actuar, nunca inventes
-- Si la fecha es relativa y ambigua (ej: "el jueves" pudiendo ser pasado o futuro) → pregunta
-- Si el slug ya existe en las entidades existentes → avisa y pregunta si actualizar o crear uno nuevo
-
-### Slugs
-- Siempre kebab-case: minúsculas, sin acentos, guiones en lugar de espacios
-- Ejemplos: `proyecto-tesis`, `parcial-calculo-2`, `ideas-startup`
-
-## EJEMPLOS
-
-**Ejemplo 1 — Crear proyecto:**
-> Usuario: "Crea un proyecto para mi tesis con metodología kanban"
-> → Llamar `org_entry_write` con type="project", slug="tesis", methodology="kanban", body con secciones To Do / In Progress / Done
-
-**Ejemplo 2 — Duplicado detectado:**
-> Usuario: "Crea un proyecto de tesis" (y "tesis" ya existe en entidades existentes)
-> → NO llamar tool. Responder: "Ya existe un proyecto con slug 'tesis'. ¿Quieres actualizarlo o crear uno con nombre diferente?"
-
-**Ejemplo 3 — Dato faltante:**
-> Usuario: "Agrega una tarea de cálculo para el viernes"
-> → NO llamar tool. Preguntar: "¿Cuál es el nombre de la tarea y qué materia?"
-
-**Ejemplo 4 — Consulta pura:**
-> Usuario: "¿Qué proyectos tengo activos?"
-> → Llamar `org_entry_list` con type="project" y listar los resultados en texto
-
-**Ejemplo 5 — Nota con tags automáticos:**
-> Usuario: "Guarda esto: usar React Query para el fetch del dashboard, más performante que useEffect directo"
-> → Llamar `org_entry_write` con type="note", inferir tags=["react", "performance", "frontend"]
-"""
-</file>
-
-<file path="backend/app/routers/memory.py">
-from typing import Optional
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from pathlib import Path
-from sse_starlette.sse import EventSourceResponse
-from app.agent.context.user_context import get_kraid_dir
-from app.services.memory_watcher import watcher
-import os
-
-router = APIRouter()
-
-class MemoryFileCreate(BaseModel):
-    title: str
-    filename: str
-    type: str
-    content: str
-
-class MemoryFileUpdate(BaseModel):
-    title: Optional[str] = None
-    filename: Optional[str] = None
-    type: Optional[str] = None
-    content: Optional[str] = None
-
-VALID_TYPES = {"profile", "feedback", "projects", "references"}
-
-def get_file_details(filepath: Path, type: str) -> dict:
-    content = filepath.read_text(encoding="utf-8")
-    title = filepath.stem
-    # simple frontmatter parse
-    clines = content.splitlines()
-    if clines and clines[0].strip() == "---":
-        for line in clines[1:]:
-            if line.strip() == "---": break
-            if line.startswith("name:"): title = line.split(":", 1)[1].strip()
-    
-    stat = filepath.stat()
-    return {
-        "id": f"{type}-{filepath.name}",
-        "filename": filepath.name,
-        "title": title,
-        "type": type,
-        "content": content,
-        "lastModified": stat.st_mtime * 1000, # ms for JS Date
-        "wordCount": len([w for w in content.split() if w])
-    }
-
-@router.get("/")
-async def list_memory():
-    kraid_dir = get_kraid_dir()
-    files = []
-    for type_dir in VALID_TYPES:
-        tdir = kraid_dir / type_dir
-        if tdir.exists():
-            for f in tdir.iterdir():
-                if f.suffix == ".md":
-                    files.append(get_file_details(f, type_dir))
-    return files
-
-@router.get("/{type}/{filename}")
-async def read_memory(type: str, filename: str):
-    if type not in VALID_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid type")
-    
-    filepath = (get_kraid_dir() / type / filename).resolve()
-    if not str(filepath).startswith(str(get_kraid_dir())):
-        raise HTTPException(status_code=400, detail="Path traversal")
-        
-    if not filepath.exists() or not filepath.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-        
-    return get_file_details(filepath, type)
-
-@router.post("/")
-async def create_memory(data: MemoryFileCreate):
-    if data.type not in VALID_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid type")
-        
-    filepath = (get_kraid_dir() / data.type / data.filename).resolve()
-    if not str(filepath).startswith(str(get_kraid_dir())):
-        raise HTTPException(status_code=400, detail="Path traversal")
-        
-    if not filepath.suffix == ".md":
-        filepath = filepath.with_suffix(".md")
-        
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    filepath.write_text(data.content, encoding="utf-8")
-    
-    # Let tools auto-index handling PREFERENCES.md later or index here if needed
-    return get_file_details(filepath, data.type)
-
-@router.put("/{type}/{filename}")
-async def update_memory(type: str, filename: str, data: MemoryFileUpdate):
-    if type not in VALID_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid type")
-        
-    filepath = (get_kraid_dir() / type / filename).resolve()
-    if not str(filepath).startswith(str(get_kraid_dir())):
-        raise HTTPException(status_code=400, detail="Path traversal")
-        
-    if not filepath.exists() or not filepath.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-        
-    # Handling file move is complex, keeping it simple: update content for now
-    if data.content is not None:
-        filepath.write_text(data.content, encoding="utf-8")
-        
-    return get_file_details(filepath, type)
-
-@router.delete("/{type}/{filename}")
-async def delete_memory(type: str, filename: str):
-    if type not in VALID_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid type")
-        
-    filepath = (get_kraid_dir() / type / filename).resolve()
-    if not str(filepath).startswith(str(get_kraid_dir())):
-        raise HTTPException(status_code=400, detail="Path traversal")
-        
-    if not filepath.exists() or not filepath.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-        
-    filepath.unlink()
-    return {"status": "ok"}
-
-@router.get("/stream")
-async def stream_memory_events():
-    async def event_generator():
-        async for event in watcher.event_generator():
-            yield {"event": event["event"], "data": event["data"]}
-    
-    return EventSourceResponse(content=event_generator())
-</file>
-
-<file path="backend/app/services/memory_watcher.py">
-import asyncio
-import json
-import logging
-from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from app.agent.context.user_context import get_kraid_dir
-
-logger = logging.getLogger("kraid.memory_watcher")
-
-class MemoryEventHandler(FileSystemEventHandler):
-    def __init__(self, queue: asyncio.Queue):
-        self.queue = queue
-        self.loop = asyncio.get_running_loop()
-        super().__init__()
-
-    def on_modified(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            self._notify(event.src_path, "update")
-
-    def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            self._notify(event.src_path, "create")
-
-    def on_deleted(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            self._notify(event.src_path, "delete")
-            
-    def _notify(self, src_path, action):
-        try:
-            kraid_dir = get_kraid_dir()
-            path = Path(src_path)
-            # Must be within a valid type directory: profile, feedback, projects, references
-            rel_path = path.relative_to(kraid_dir)
-            if len(rel_path.parts) == 2:
-                mem_type = rel_path.parts[0]
-                if mem_type in {"profile", "feedback", "projects", "references"}:
-                    event_data = {
-                        "event": "memory_changed",
-                        "data": {
-                            "type": mem_type,
-                            "filename": rel_path.parts[1],
-                            "action": action
-                        }
-                    }
-                    # Run coroutine threadsafe
-                    asyncio.run_coroutine_threadsafe(self.queue.put(event_data), self.loop)
-        except ValueError:
-            pass # Not relative to kraid_dir
-
-class MemoryWatcher:
-    def __init__(self):
-        self.observer = Observer()
-        self.queue = None
-        self.kraid_dir = get_kraid_dir()
-        self.is_running = False
-
-    async def start(self):
-        if self.is_running:
-            return
-            
-        self.kraid_dir.mkdir(parents=True, exist_ok=True)
-        for t in ["profile", "feedback", "projects", "references"]:
-            (self.kraid_dir / t).mkdir(parents=True, exist_ok=True)
-            
-        self.queue = asyncio.Queue()
-        event_handler = MemoryEventHandler(self.queue)
-        
-        self.observer.schedule(event_handler, str(self.kraid_dir), recursive=True)
-        self.observer.start()
-        self.is_running = True
-        logger.info(f"Memory watcher started on {self.kraid_dir}")
-
-    def stop(self):
-        if self.is_running:
-            self.observer.stop()
-            self.observer.join()
-            self.is_running = False
-            logger.info("Memory watcher stopped")
-
-    async def event_generator(self):
-        if not self.is_running:
-            await self.start()
-            
-        try:
-            while True:
-                event = await self.queue.get()
-                yield event
-        except asyncio.CancelledError:
-            pass
-
-watcher = MemoryWatcher()
-</file>
-
-<file path="frontend/src/features/memory/data/repositories/HttpMemoryRepository.ts">
-import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
-import type { MemoryRepository } from './MemoryRepository';
-
-const API_URL = 'http://localhost:8000/api/memory';
-
-export class HttpMemoryRepository implements MemoryRepository {
-  async getAll(): Promise<MemoryFile[]> {
-    const res = await fetch(API_URL);
-    if (!res.ok) throw new Error('Failed to fetch memory files');
-    const data = await res.json();
-    return data.map((d: any) => ({
-      ...d,
-      lastModified: new Date(d.lastModified)
-    }));
-  }
-
-  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to create memory file');
-    const d = await res.json();
-    return { ...d, lastModified: new Date(d.lastModified) };
-  }
-
-  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
-    // id is expected to be type-filename
-    const parts = id.split('-');
-    const type = parts[0];
-    const filename = parts.slice(1).join('-');
-    const res = await fetch(`${API_URL}/${type}/${filename}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to update memory file');
-    const d = await res.json();
-    return { ...d, lastModified: new Date(d.lastModified) };
-  }
-}
-
-export const httpMemoryRepository = new HttpMemoryRepository();
-</file>
-
-<file path="frontend/src/features/memory/presentation/hooks/useMemoryWatcher.ts">
-import { useEffect } from 'react';
-import { useMemoryStore } from '../store/memoryStore';
-
-export const useMemoryWatcher = () => {
-  const loadFiles = useMemoryStore((state) => state.loadFiles);
-
-  useEffect(() => {
-    const eventSource = new EventSource('http://localhost:8000/api/memory/stream');
-
-    eventSource.addEventListener('memory_changed', () => {
-      // Reload the files when any change happens
-      void loadFiles();
-    });
-
-    eventSource.onerror = (error) => {
-      console.error('Memory event stream failed:', error);
-      // EventSource auto-reconnects by default
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [loadFiles]);
-};
-</file>
-
 <file path=".claude/plans/gap-opencode-compat.md">
 # Gap: cerrar integración agente OpenAI + compatibilidad opencode
 
@@ -1012,6 +359,62 @@ En el browser:
     }
   ]
 }
+</file>
+
+<file path="backend/app/agent/context/org_context.py">
+from pathlib import Path
+from app.agent.context.user_context import get_kraid_dir
+
+ORG_TYPES = ("project", "task", "note", "custom")
+
+
+def _parse_frontmatter(filepath: Path) -> dict:
+    try:
+        content = filepath.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return {"name": filepath.stem}
+        result = {}
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            if ":" in line:
+                key, _, val = line.partition(":")
+                result[key.strip()] = val.strip()
+        return result
+    except Exception:
+        return {"name": filepath.stem}
+
+
+def build_org_context_snapshot() -> str:
+    kraid_dir = get_kraid_dir()
+    org_dir = kraid_dir / "org"
+    if not org_dir.exists():
+        return "<org_context>\nNo hay entidades organizacionales guardadas aún.\n</org_context>"
+
+    entries: list[str] = []
+    for type_name in ORG_TYPES:
+        type_dir = org_dir / type_name
+        if not type_dir.exists():
+            continue
+        for f in sorted(type_dir.glob("*.md")):
+            fm = _parse_frontmatter(f)
+            name = fm.get("name", f.stem)
+            extra_parts = []
+            if "methodology" in fm:
+                extra_parts.append(f"methodology={fm['methodology']}")
+            if "status" in fm:
+                extra_parts.append(f"status={fm['status']}")
+            if "subject" in fm:
+                extra_parts.append(f"subject={fm['subject']}")
+            extra = f" ({', '.join(extra_parts)})" if extra_parts else ""
+            entries.append(f"- [{type_name}] slug={f.stem} | name={name}{extra}")
+
+    if not entries:
+        return "<org_context>\nNo hay entidades organizacionales guardadas aún.\n</org_context>"
+
+    body = "\n".join(entries)
+    return f"<org_context>\n{body}\n</org_context>"
 </file>
 
 <file path="backend/app/agent/context/user_context.py">
@@ -1387,6 +790,221 @@ fs_search = Tool(
 )
 </file>
 
+<file path="backend/app/agent/tools/org_tools.py">
+import re
+import unicodedata
+from pathlib import Path
+from typing import Optional
+from app.agent.tools.base import Tool
+from app.agent.context.user_context import get_kraid_dir
+
+ORG_TYPES = ("project", "task", "note", "custom")
+
+_REQUIRED_FIELDS: dict[str, list[str]] = {
+    "project": ["name", "methodology"],
+    "task": ["name", "subject"],
+    "note": ["name"],
+    "custom": ["name"],
+}
+
+_METHODOLOGY_BODIES = {
+    "scrum": "# Backlog\n\n# Sprint 1\n\n# Done\n",
+    "kanban": "# To Do\n\n# In Progress\n\n# Done\n",
+}
+
+
+def _to_kebab(text: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", text)
+    ascii_text = nfkd.encode("ascii", "ignore").decode("ascii")
+    lowered = ascii_text.lower()
+    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
+
+
+def _build_frontmatter(fields: dict) -> str:
+    lines = ["---"]
+    for k, v in fields.items():
+        if isinstance(v, list):
+            lines.append(f"{k}: [{', '.join(str(i) for i in v)}]")
+        else:
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def _read_existing(filepath: Path) -> tuple[dict, str]:
+    """Parse existing file into (frontmatter_dict, body)."""
+    try:
+        content = filepath.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return {}, content
+        fm: dict = {}
+        end_idx = 1
+        for i, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                end_idx = i + 1
+                break
+            if ":" in line:
+                k, _, v = line.partition(":")
+                fm[k.strip()] = v.strip()
+        body = "\n".join(lines[end_idx:])
+        return fm, body
+    except Exception:
+        return {}, ""
+
+
+async def org_entry_write_action(
+    type: str,
+    slug: str,
+    frontmatter: dict,
+    body: str,
+    mode: str = "create",
+) -> str:
+    if type not in ORG_TYPES:
+        return f"Error: tipo '{type}' inválido. Debe ser uno de {ORG_TYPES}."
+
+    required = _REQUIRED_FIELDS.get(type, ["name"])
+    missing = [f for f in required if f not in frontmatter]
+    if missing:
+        return f"Error: campos requeridos faltantes para tipo '{type}': {missing}"
+
+    clean_slug = _to_kebab(slug)
+    if not clean_slug:
+        return "Error: slug inválido."
+
+    # Path traversal guard
+    kraid_dir = get_kraid_dir()
+    org_dir = kraid_dir / "org" / type
+    org_dir.mkdir(parents=True, exist_ok=True)
+    filepath = (org_dir / f"{clean_slug}.md").resolve()
+    if not str(filepath).startswith(str(org_dir.resolve())):
+        return "Error: path traversal detectado."
+
+    if mode == "update" and filepath.exists():
+        existing_fm, existing_body = _read_existing(filepath)
+        merged_fm = {**existing_fm, **frontmatter}
+        final_body = body if body.strip() else existing_body
+    else:
+        merged_fm = {"name": frontmatter.get("name", clean_slug), "type": type, **frontmatter}
+        # Auto-generate body for projects based on methodology
+        if not body.strip() and type == "project":
+            methodology = frontmatter.get("methodology", "kanban")
+            final_body = _METHODOLOGY_BODIES.get(methodology, "")
+        else:
+            final_body = body
+
+    fm_str = _build_frontmatter(merged_fm)
+    full_content = f"{fm_str}\n\n{final_body.strip()}\n"
+    filepath.write_text(full_content, encoding="utf-8")
+
+    action_label = "actualizado" if mode == "update" and filepath.exists() else "creado"
+    return f"Entrada {action_label}: org/{type}/{clean_slug}.md"
+
+
+org_entry_write = Tool(
+    name="org_entry_write",
+    description=(
+        "Crea o actualiza una entrada organizacional (proyecto, tarea, nota, custom) "
+        "en el directorio .kraid/org/. Usar mode='update' para hacer merge con datos existentes."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": list(ORG_TYPES),
+                "description": "Tipo de entidad.",
+            },
+            "slug": {
+                "type": "string",
+                "description": "Identificador único kebab-case (ej: 'proyecto-tesis'). Se sanitiza automáticamente.",
+            },
+            "frontmatter": {
+                "type": "object",
+                "description": (
+                    "Campos de la entidad. "
+                    "project requiere: name, methodology (scrum|kanban). "
+                    "task requiere: name, subject. "
+                    "note requiere: name. "
+                    "custom requiere: name."
+                ),
+            },
+            "body": {
+                "type": "string",
+                "description": "Cuerpo Markdown de la entidad. Para proyectos se genera automáticamente si se omite.",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["create", "update"],
+                "description": "create: sobrescribe (default). update: merge con datos existentes.",
+            },
+        },
+        "required": ["type", "slug", "frontmatter"],
+    },
+    execute=org_entry_write_action,
+)
+
+
+async def org_entry_list_action(type: Optional[str] = None) -> str:
+    kraid_dir = get_kraid_dir()
+    org_dir = kraid_dir / "org"
+    if not org_dir.exists():
+        return "No hay entidades guardadas aún."
+
+    types_to_scan = [type] if type and type in ORG_TYPES else list(ORG_TYPES)
+    lines: list[str] = []
+
+    for t in types_to_scan:
+        type_dir = org_dir / t
+        if not type_dir.exists():
+            continue
+        files = sorted(type_dir.glob("*.md"))
+        if not files:
+            continue
+        lines.append(f"\n### {t}")
+        for f in files:
+            try:
+                content = f.read_text(encoding="utf-8")
+                file_lines = content.splitlines()
+                name = f.stem
+                extra: dict = {}
+                if file_lines and file_lines[0].strip() == "---":
+                    for line in file_lines[1:]:
+                        if line.strip() == "---":
+                            break
+                        if ":" in line:
+                            k, _, v = line.partition(":")
+                            k, v = k.strip(), v.strip()
+                            if k == "name":
+                                name = v
+                            elif k in ("status", "methodology", "subject", "due"):
+                                extra[k] = v
+                extra_str = " | ".join(f"{k}={v}" for k, v in extra.items())
+                lines.append(f"- slug={f.stem} | name={name}" + (f" | {extra_str}" if extra_str else ""))
+            except Exception:
+                lines.append(f"- slug={f.stem}")
+
+    return "\n".join(lines) if lines else "No hay entidades del tipo solicitado."
+
+
+org_entry_list = Tool(
+    name="org_entry_list",
+    description="Lista las entradas organizacionales guardadas. Pasar type para filtrar por tipo.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": list(ORG_TYPES),
+                "description": "Filtrar por tipo. Omitir para listar todos.",
+            },
+        },
+        "required": [],
+    },
+    execute=org_entry_list_action,
+)
+</file>
+
 <file path="backend/app/agent/tools/user_memory_tools.py">
 import os
 from pathlib import Path
@@ -1501,8 +1119,221 @@ user_memory_delete = Tool(
 
 </file>
 
+<file path="backend/app/agent/prompts.py">
+DOMAIN_AGENT_PROMPT = """Eres Kraid, un asistente personal de organización. Tu función principal es ayudar al usuario a estructurar y persistir información como proyectos, tareas, notas y cualquier otro tipo de entidad personal.
+
+## CONTEXTO TEMPORAL
+Hoy es: {TODAY}
+
+## ENTIDADES EXISTENTES
+{context_snapshot}
+
+## TIPOS DE ENTIDAD
+
+### project
+- **Campos requeridos:** `name` (string), `methodology` (enum: scrum | kanban)
+- **Lógica automática:**
+  - scrum → secciones: `# Backlog`, `# Sprint 1`, `# Done`
+  - kanban → secciones: `# To Do`, `# In Progress`, `# Done`
+- **Defaults:** `status: active`, `sprint_duration_days: 14`
+
+### task
+- **Campos requeridos:** `name` (string), `subject` (string — materia o área)
+- **Campos opcionales:** `due` (ISO 8601), `weight` (porcentaje), `status` (default: pending)
+- **Cuerpo:** descripción de la entrega + checklist si aplica
+
+### note
+- **Campos requeridos:** `name` (string)
+- **Campos opcionales:** `tags` (lista de strings — inferir automáticamente del contenido)
+- **Cuerpo:** contenido libre de la nota
+
+### custom
+- **Campos requeridos:** `name` (string)
+- **Campos opcionales:** cualquier campo adicional relevante
+- **Uso:** para cualquier entidad que no encaje en los tipos anteriores
+
+## REGLAS DE COMPORTAMIENTO
+
+### Cuándo llamar `org_entry_write`
+- El usuario quiere crear o actualizar una entidad (proyecto, tarea, nota, etc.)
+- Tienes todos los datos requeridos para el tipo
+
+### Cuándo llamar `org_entry_list`
+- Antes de crear algo nuevo, verificar si ya existe un slug equivalente
+- Cuando el usuario pregunta qué tiene guardado
+
+### Cuándo NO llamar ninguna tool org_*
+- El usuario solo hace una pregunta o consulta (responder directamente)
+- El usuario pide consejo o análisis (responder directamente)
+
+### Protocolo Fail-Fast
+- Si falta un campo requerido → pregunta antes de actuar, nunca inventes
+- Si la fecha es relativa y ambigua (ej: "el jueves" pudiendo ser pasado o futuro) → pregunta
+- Si el slug ya existe en las entidades existentes → avisa y pregunta si actualizar o crear uno nuevo
+
+### Slugs
+- Siempre kebab-case: minúsculas, sin acentos, guiones en lugar de espacios
+- Ejemplos: `proyecto-tesis`, `parcial-calculo-2`, `ideas-startup`
+
+## EJEMPLOS
+
+**Ejemplo 1 — Crear proyecto:**
+> Usuario: "Crea un proyecto para mi tesis con metodología kanban"
+> → Llamar `org_entry_write` con type="project", slug="tesis", methodology="kanban", body con secciones To Do / In Progress / Done
+
+**Ejemplo 2 — Duplicado detectado:**
+> Usuario: "Crea un proyecto de tesis" (y "tesis" ya existe en entidades existentes)
+> → NO llamar tool. Responder: "Ya existe un proyecto con slug 'tesis'. ¿Quieres actualizarlo o crear uno con nombre diferente?"
+
+**Ejemplo 3 — Dato faltante:**
+> Usuario: "Agrega una tarea de cálculo para el viernes"
+> → NO llamar tool. Preguntar: "¿Cuál es el nombre de la tarea y qué materia?"
+
+**Ejemplo 4 — Consulta pura:**
+> Usuario: "¿Qué proyectos tengo activos?"
+> → Llamar `org_entry_list` con type="project" y listar los resultados en texto
+
+**Ejemplo 5 — Nota con tags automáticos:**
+> Usuario: "Guarda esto: usar React Query para el fetch del dashboard, más performante que useEffect directo"
+> → Llamar `org_entry_write` con type="note", inferir tags=["react", "performance", "frontend"]
+"""
+</file>
+
 <file path="backend/app/routers/__init__.py">
 
+</file>
+
+<file path="backend/app/routers/memory.py">
+from typing import Optional
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from pathlib import Path
+from sse_starlette.sse import EventSourceResponse
+from app.agent.context.user_context import get_kraid_dir
+from app.services.memory_watcher import watcher
+import os
+
+router = APIRouter()
+
+class MemoryFileCreate(BaseModel):
+    title: str
+    filename: str
+    type: str
+    content: str
+
+class MemoryFileUpdate(BaseModel):
+    title: Optional[str] = None
+    filename: Optional[str] = None
+    type: Optional[str] = None
+    content: Optional[str] = None
+
+VALID_TYPES = {"profile", "feedback", "projects", "references"}
+
+def get_file_details(filepath: Path, type: str) -> dict:
+    content = filepath.read_text(encoding="utf-8")
+    title = filepath.stem
+    # simple frontmatter parse
+    clines = content.splitlines()
+    if clines and clines[0].strip() == "---":
+        for line in clines[1:]:
+            if line.strip() == "---": break
+            if line.startswith("name:"): title = line.split(":", 1)[1].strip()
+    
+    stat = filepath.stat()
+    return {
+        "id": f"{type}-{filepath.name}",
+        "filename": filepath.name,
+        "title": title,
+        "type": type,
+        "content": content,
+        "lastModified": stat.st_mtime * 1000, # ms for JS Date
+        "wordCount": len([w for w in content.split() if w])
+    }
+
+@router.get("/")
+async def list_memory():
+    kraid_dir = get_kraid_dir()
+    files = []
+    for type_dir in VALID_TYPES:
+        tdir = kraid_dir / type_dir
+        if tdir.exists():
+            for f in tdir.iterdir():
+                if f.suffix == ".md":
+                    files.append(get_file_details(f, type_dir))
+    return files
+
+@router.get("/{type}/{filename}")
+async def read_memory(type: str, filename: str):
+    if type not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid type")
+    
+    filepath = (get_kraid_dir() / type / filename).resolve()
+    if not str(filepath).startswith(str(get_kraid_dir())):
+        raise HTTPException(status_code=400, detail="Path traversal")
+        
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    return get_file_details(filepath, type)
+
+@router.post("/")
+async def create_memory(data: MemoryFileCreate):
+    if data.type not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid type")
+        
+    filepath = (get_kraid_dir() / data.type / data.filename).resolve()
+    if not str(filepath).startswith(str(get_kraid_dir())):
+        raise HTTPException(status_code=400, detail="Path traversal")
+        
+    if not filepath.suffix == ".md":
+        filepath = filepath.with_suffix(".md")
+        
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    filepath.write_text(data.content, encoding="utf-8")
+    
+    # Let tools auto-index handling PREFERENCES.md later or index here if needed
+    return get_file_details(filepath, data.type)
+
+@router.put("/{type}/{filename}")
+async def update_memory(type: str, filename: str, data: MemoryFileUpdate):
+    if type not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid type")
+        
+    filepath = (get_kraid_dir() / type / filename).resolve()
+    if not str(filepath).startswith(str(get_kraid_dir())):
+        raise HTTPException(status_code=400, detail="Path traversal")
+        
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    # Handling file move is complex, keeping it simple: update content for now
+    if data.content is not None:
+        filepath.write_text(data.content, encoding="utf-8")
+        
+    return get_file_details(filepath, type)
+
+@router.delete("/{type}/{filename}")
+async def delete_memory(type: str, filename: str):
+    if type not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid type")
+        
+    filepath = (get_kraid_dir() / type / filename).resolve()
+    if not str(filepath).startswith(str(get_kraid_dir())):
+        raise HTTPException(status_code=400, detail="Path traversal")
+        
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    filepath.unlink()
+    return {"status": "ok"}
+
+@router.get("/stream")
+async def stream_memory_events():
+    async def event_generator():
+        async for event in watcher.event_generator():
+            yield {"event": event["event"], "data": event["data"]}
+    
+    return EventSourceResponse(content=event_generator())
 </file>
 
 <file path="backend/app/services/__init__.py">
@@ -1568,6 +1399,101 @@ class CanvasStore:
 
 
 canvas_store = CanvasStore()
+</file>
+
+<file path="backend/app/services/memory_watcher.py">
+import asyncio
+import json
+import logging
+from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from app.agent.context.user_context import get_kraid_dir
+
+logger = logging.getLogger("kraid.memory_watcher")
+
+class MemoryEventHandler(FileSystemEventHandler):
+    def __init__(self, queue: asyncio.Queue):
+        self.queue = queue
+        self.loop = asyncio.get_running_loop()
+        super().__init__()
+
+    def on_modified(self, event):
+        if not event.is_directory and event.src_path.endswith(".md"):
+            self._notify(event.src_path, "update")
+
+    def on_created(self, event):
+        if not event.is_directory and event.src_path.endswith(".md"):
+            self._notify(event.src_path, "create")
+
+    def on_deleted(self, event):
+        if not event.is_directory and event.src_path.endswith(".md"):
+            self._notify(event.src_path, "delete")
+            
+    def _notify(self, src_path, action):
+        try:
+            kraid_dir = get_kraid_dir()
+            path = Path(src_path)
+            # Must be within a valid type directory: profile, feedback, projects, references
+            rel_path = path.relative_to(kraid_dir)
+            if len(rel_path.parts) == 2:
+                mem_type = rel_path.parts[0]
+                if mem_type in {"profile", "feedback", "projects", "references"}:
+                    event_data = {
+                        "event": "memory_changed",
+                        "data": {
+                            "type": mem_type,
+                            "filename": rel_path.parts[1],
+                            "action": action
+                        }
+                    }
+                    # Run coroutine threadsafe
+                    asyncio.run_coroutine_threadsafe(self.queue.put(event_data), self.loop)
+        except ValueError:
+            pass # Not relative to kraid_dir
+
+class MemoryWatcher:
+    def __init__(self):
+        self.observer = Observer()
+        self.queue = None
+        self.kraid_dir = get_kraid_dir()
+        self.is_running = False
+
+    async def start(self):
+        if self.is_running:
+            return
+            
+        self.kraid_dir.mkdir(parents=True, exist_ok=True)
+        for t in ["profile", "feedback", "projects", "references"]:
+            (self.kraid_dir / t).mkdir(parents=True, exist_ok=True)
+            
+        self.queue = asyncio.Queue()
+        event_handler = MemoryEventHandler(self.queue)
+        
+        self.observer.schedule(event_handler, str(self.kraid_dir), recursive=True)
+        self.observer.start()
+        self.is_running = True
+        logger.info(f"Memory watcher started on {self.kraid_dir}")
+
+    def stop(self):
+        if self.is_running:
+            self.observer.stop()
+            self.observer.join()
+            self.is_running = False
+            logger.info("Memory watcher stopped")
+
+    async def event_generator(self):
+        if not self.is_running:
+            await self.start()
+            
+        try:
+            while True:
+                event = await self.queue.get()
+                yield event
+        except asyncio.CancelledError:
+            pass
+
+watcher = MemoryWatcher()
 </file>
 
 <file path="backend/app/__init__.py">
@@ -2408,35 +2334,51 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 }));
 </file>
 
-<file path="frontend/src/features/memory/domain/entities/MemoryFile.ts">
-export type MemoryFileType = 'profile' | 'projects' | 'feedback' | 'references';
+<file path="frontend/src/features/memory/data/repositories/HttpMemoryRepository.ts">
+import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
+import type { MemoryRepository } from './MemoryRepository';
 
-export interface MemoryFile {
-  id: string;
-  filename: string;
-  title: string;
-  type: MemoryFileType;
-  content: string;
-  lastModified: Date;
-  wordCount: number;
+const API_URL = 'http://localhost:8000/api/memory';
+
+export class HttpMemoryRepository implements MemoryRepository {
+  async getAll(): Promise<MemoryFile[]> {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('Failed to fetch memory files');
+    const data = await res.json();
+    return data.map((d: any) => ({
+      ...d,
+      lastModified: new Date(d.lastModified)
+    }));
+  }
+
+  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create memory file');
+    const d = await res.json();
+    return { ...d, lastModified: new Date(d.lastModified) };
+  }
+
+  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
+    // id is expected to be type-filename
+    const parts = id.split('-');
+    const type = parts[0];
+    const filename = parts.slice(1).join('-');
+    const res = await fetch(`${API_URL}/${type}/${filename}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to update memory file');
+    const d = await res.json();
+    return { ...d, lastModified: new Date(d.lastModified) };
+  }
 }
 
-export const createMemoryFile = (
-  id: string,
-  filename: string,
-  title: string,
-  type: MemoryFileType,
-  content: string,
-  lastModified: Date = new Date(),
-): MemoryFile => ({
-  id,
-  filename,
-  title,
-  type,
-  content,
-  lastModified,
-  wordCount: content.trim().split(/\s+/).filter((w) => w.length > 0).length,
-});
+export const httpMemoryRepository = new HttpMemoryRepository();
 </file>
 
 <file path="frontend/src/features/memory/domain/errors/MemoryErrors.ts">
@@ -2460,6 +2402,33 @@ export class MemoryLoadFailure extends MemoryDomainError {
     this.name = 'MemoryLoadFailure';
   }
 }
+</file>
+
+<file path="frontend/src/features/memory/presentation/hooks/useMemoryWatcher.ts">
+import { useEffect } from 'react';
+import { useMemoryStore } from '../store/memoryStore';
+
+export const useMemoryWatcher = () => {
+  const loadFiles = useMemoryStore((state) => state.loadFiles);
+
+  useEffect(() => {
+    const eventSource = new EventSource('http://localhost:8000/api/memory/stream');
+
+    eventSource.addEventListener('memory_changed', () => {
+      // Reload the files when any change happens
+      void loadFiles();
+    });
+
+    eventSource.onerror = (error) => {
+      console.error('Memory event stream failed:', error);
+      // EventSource auto-reconnects by default
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [loadFiles]);
+};
 </file>
 
 <file path="frontend/src/features/settings/data/repositories/PreferencesRepository.ts">
@@ -3169,26 +3138,6 @@ Depth comes from **ring shadows**, not drop shadows.
 See [AGENTS.md](./AGENTS.md) for full project instructions.
 </file>
 
-<file path="backend/app/agent/tools/__init__.py">
-from app.agent.tools.base import ToolRegistry
-from app.agent.tools.canvas_tools import canvas_list, canvas_read, canvas_create, canvas_edit
-from app.agent.tools.memory_tools import memory_list, memory_read, memory_write
-from app.agent.tools.user_memory_tools import user_memory_save, user_memory_delete
-from app.agent.tools.fs_tools import fs_read, fs_write, fs_list, fs_search
-from app.agent.tools.org_tools import org_entry_write, org_entry_list
-
-tool_registry = ToolRegistry()
-
-for tool in [
-    canvas_list, canvas_read, canvas_create, canvas_edit,
-    memory_list, memory_read, memory_write,
-    user_memory_save, user_memory_delete,
-    fs_read, fs_write, fs_list, fs_search,
-    org_entry_write, org_entry_list,
-]:
-    tool_registry.register(tool)
-</file>
-
 <file path="backend/app/agent/tools/memory_tools.py">
 import json
 import os
@@ -3325,44 +3274,6 @@ def update_document(doc_id: str, body: UpdateBody):
 @router.post("/documents")
 def create_document(body: CreateBody):
     return canvas_store.create(body.title, body.content)
-</file>
-
-<file path="backend/app/main.py">
-import logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.routers import chat, canvas, memory
-from app.config import settings
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("kraid")
-
-app = FastAPI(title="Kraid API", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-app.include_router(canvas.router, prefix="/api/canvas", tags=["canvas"])
-app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
-
-
-@app.on_event("startup")
-def startup():
-    if not settings.openai_api_key:
-        logger.warning("OPENAI_API_KEY not set — agent disabled. POST /api/chat/stream will return 503")
-    else:
-        logger.info("OpenAI agent ready (model=%s, repo=%s)", settings.openai_model, settings.repo_root)
-
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "agent_ready": bool(settings.openai_api_key)}
 </file>
 
 <file path="backend/.env.example">
@@ -4110,90 +4021,35 @@ export function useStreamingText(
 }
 </file>
 
-<file path="frontend/src/features/memory/data/repositories/MemoryRepository.ts">
-import type { MemoryFile } from '../../domain/entities/MemoryFile';
-import { createMemoryFile } from '../../domain/entities/MemoryFile';
-import type { MemoryFileType } from '../../domain/entities/MemoryFile';
+<file path="frontend/src/features/memory/domain/entities/MemoryFile.ts">
+export type MemoryFileType = 'profile' | 'projects' | 'feedback' | 'references';
 
-export interface MemoryRepository {
-  getAll(): Promise<MemoryFile[]>;
-  add(file: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile>;
-  update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile>;
+export interface MemoryFile {
+  id: string;
+  filename: string;
+  title: string;
+  type: MemoryFileType;
+  content: string;
+  lastModified: Date;
+  wordCount: number;
 }
 
-const FILES: MemoryFile[] = [
-  createMemoryFile(
-    'mem-1',
-    'user_profile.md',
-    'User Profile',
-    'profile',
-    '# User Profile\n\n## Background\n\nFull-stack developer with 8+ years of experience building web applications. Strong preference for TypeScript, React, and Python. Passionate about clean architecture, developer experience, and well-designed APIs.\n\n## Technical Stack\n\n- **Frontend**: React 19, TypeScript, Tailwind CSS\n- **Backend**: Python, FastAPI\n- **Tools**: Git, VSCode, Neovim\n- **Interests**: System design, DX tooling, open source\n\n## Preferences\n\n- Prefers concise, direct communication\n- Values well-structured code over clever one-liners\n- Enjoys exploring new frameworks and paradigms\n- Works best with clear specifications and iterative feedback',
-    new Date('2024-03-15T10:00:00'),
-  ),
-  createMemoryFile(
-    'mem-2',
-    'project_kraid.md',
-    'Project Kraid',
-    'projects',
-    '# Project Kraid\n\n## Overview\n\nKraid is a full-stack monorepo workspace designed as an AI-assisted development environment.\n\n## Architecture\n\n- **Monorepo** with `frontend/` and `backend/` directories\n- **Frontend**: Vite + React 19 + TypeScript + Tailwind CSS v4\n- **Backend**: FastAPI (Python 3.9+) + Uvicorn\n- **State**: Zustand stores with repository injection\n- **Pattern**: Clean Architecture with Feature Slices\n\n## Roadmap\n\n1. Memory file viewer (current)\n2. Real API integration\n3. Authentication & user sessions\n4. Collaborative editing',
-    new Date('2024-03-20T14:00:00'),
-  ),
-  createMemoryFile(
-    'mem-3',
-    'feedback_coding_style.md',
-    'Feedback: Coding Style',
-    'feedback',
-    '# Coding Style Feedback\n\n## Strengths\n\n- Clean separation of concerns following feature-slice pattern\n- Consistent error handling with domain-specific error classes\n- Good use of factory functions over classes\n- Proper typing with strict TypeScript configuration\n\n## Areas for Improvement\n\n### 1. File Length\nSome components (MarkdownCanvas) are approaching 200 lines. Consider extracting the footer and header into sub-components.\n\n### 2. Comments\nCodebase is mostly comment-free which is good, but complex logic blocks could benefit from brief inline explanations.\n\n### 3. Testing\nTest coverage is minimal. Core stores and repositories should have unit tests.\n\n### 4. CSS Organization\nTailwind classes are verbose in some components. Consider extracting repeated patterns into reusable components.',
-    new Date('2024-04-01T09:00:00'),
-  ),
-  createMemoryFile(
-    'mem-4',
-    'feedback_communication.md',
-    'Feedback: Communication',
-    'feedback',
-    '# Communication Feedback\n\n## Session Patterns\n\n- User prefers direct, no-filler responses\n- Technical explanations should be concise: state the problem, show the fix, move on\n- When exploring code, highlight file paths and line numbers\n\n## Response Style\n\n- Use bullet points for multiple items\n- Code blocks should be focused, not whole files\n- When suggesting architecture changes, explain trade-offs briefly\n\n## Preferences\n\n- Cave-man mode acceptable for routine tasks\n- Full explanations needed for security-related decisions\n- User appreciates parallel execution of independent tasks',
-    new Date('2024-04-05T16:00:00'),
-  ),
-  createMemoryFile(
-    'mem-5',
-    'reference_architecture.md',
-    'Reference Architecture',
-    'references',
-    '# Kraid Architecture Reference\n\n## Clean Architecture — Feature Slices\n\n```\nfeatures/\n  $feature/\n    data/\n      repositories/\n        NombreRepository.ts\n    domain/\n      entities/\n        Nombre.ts\n      errors/\n        NombreErrors.ts\n    presentation/\n      components/\n        NombreComponente.tsx\n      store/\n        nombreStore.ts\n```\n\n## Dependency Flow\n\n```\npresentation/ -> domain/ <- data/\n```\n\nPresentation depends on domain. Domain depends on nothing. Data implements domain interfaces.\n\n## Conventions\n\n| Type | Convention | Example |\n|------|------------|--------|\n| Components | PascalCase + .tsx | `ChatPanel.tsx` |\n| Stores | camelCase + `Store` suffix | `chatStore.ts` |\n| Entities | PascalCase | `Message.ts` |\n| Errors | PascalCase + `Error` suffix | `DocumentNotFoundError.ts` |\n| Repositories | PascalCase + `Repository` suffix | `MessageRepository.ts` |\n| Factory fn | `create` + Entity name | `createMessage()` |',
-    new Date('2024-04-10T12:00:00'),
-  ),
-];
-
-export class MockMemoryRepository implements MemoryRepository {
-  private files: MemoryFile[] = FILES.map((f) => ({ ...f }));
-
-  async getAll(): Promise<MemoryFile[]> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return this.files.map((f) => ({ ...f }));
-  }
-
-  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const file = createMemoryFile(`mem-${Date.now()}`, data.filename, data.title, data.type, data.content);
-    this.files.push(file);
-    return { ...file };
-  }
-
-  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const idx = this.files.findIndex((f) => f.id === id);
-    if (idx < 0) throw new Error('Memory file not found');
-    this.files[idx] = {
-      ...this.files[idx],
-      ...data,
-      lastModified: new Date(),
-      wordCount: (data.content ?? this.files[idx].content).trim().split(/\s+/).filter((w) => w.length > 0).length,
-    };
-    return { ...this.files[idx] };
-  }
-}
-
-export const mockMemoryRepository = new MockMemoryRepository();
+export const createMemoryFile = (
+  id: string,
+  filename: string,
+  title: string,
+  type: MemoryFileType,
+  content: string,
+  lastModified: Date = new Date(),
+): MemoryFile => ({
+  id,
+  filename,
+  title,
+  type,
+  content,
+  lastModified,
+  wordCount: content.trim().split(/\s+/).filter((w) => w.length > 0).length,
+});
 </file>
 
 <file path="frontend/src/features/memory/presentation/components/MemoryFileContent.tsx">
@@ -4366,76 +4222,6 @@ export const MemoryFileContent = () => {
 };
 </file>
 
-<file path="frontend/src/features/memory/presentation/store/memoryStore.ts">
-import { create } from 'zustand';
-import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
-import type { MemoryRepository } from '../../data/repositories/MemoryRepository';
-import { httpMemoryRepository } from '../../data/repositories/HttpMemoryRepository';
-
-interface MemoryState {
-  files: MemoryFile[];
-  selectedFileId: string | null;
-  isLoading: boolean;
-  error: string | null;
-  isEditing: boolean;
-  loadFiles: () => Promise<void>;
-  selectFile: (id: string | null) => void;
-  addFile: (type: MemoryFileType, title: string) => Promise<void>;
-  updateFile: (id: string, data: { title?: string; type?: MemoryFileType; content?: string }) => Promise<void>;
-  setEditing: (editing: boolean) => void;
-}
-
-export const createMemoryStore = (repository: MemoryRepository = httpMemoryRepository) =>
-  create<MemoryState>((set) => ({
-    files: [],
-    selectedFileId: null,
-    isLoading: false,
-    error: null,
-    isEditing: false,
-
-    loadFiles: async () => {
-      set({ isLoading: true, error: null });
-      try {
-        const files = await repository.getAll();
-        set({ files, isLoading: false });
-      } catch {
-        set({ error: 'Failed to load memory files', isLoading: false });
-      }
-    },
-
-    selectFile: (id: string | null) => set({ selectedFileId: id, isEditing: false }),
-
-    addFile: async (type: MemoryFileType, title: string) => {
-      try {
-        const filename = title.toLowerCase().replace(/\s+/g, '_') + '.md';
-        const file = await repository.add({ title, filename, type, content: `# ${title}\n\n` });
-        set((state) => ({
-          files: [...state.files, file],
-          selectedFileId: file.id,
-          isEditing: true,
-        }));
-      } catch {
-        set({ error: 'Failed to create memory file' });
-      }
-    },
-
-    updateFile: async (id: string, data: { title?: string; type?: MemoryFileType; content?: string }) => {
-      try {
-        const updated = await repository.update(id, data);
-        set((state) => ({
-          files: state.files.map((f) => (f.id === id ? updated : f)),
-        }));
-      } catch {
-        set({ error: 'Failed to update memory file' });
-      }
-    },
-
-    setEditing: (editing: boolean) => set({ isEditing: editing }),
-  }));
-
-export const useMemoryStore = createMemoryStore();
-</file>
-
 <file path="frontend/index.html">
 <!DOCTYPE html>
 <html lang="en">
@@ -4492,439 +4278,62 @@ export const useMemoryStore = createMemoryStore();
 }
 </file>
 
-<file path="AGENTS.md">
-# AGENTS.md — Kraid
+<file path="backend/app/agent/tools/__init__.py">
+from app.agent.tools.base import ToolRegistry
+from app.agent.tools.canvas_tools import canvas_list, canvas_read, canvas_create, canvas_edit
+from app.agent.tools.memory_tools import memory_list, memory_read, memory_write
+from app.agent.tools.user_memory_tools import user_memory_save, user_memory_delete
+from app.agent.tools.fs_tools import fs_read, fs_write, fs_list, fs_search
+from app.agent.tools.org_tools import org_entry_write, org_entry_list
 
-## Project Identity
+tool_registry = ToolRegistry()
 
-**Kraid** es un monorepo full-stack:
-
-- **Frontend**: React 19 + Vite 6 + Tailwind CSS v4 + TypeScript (ES2023)
-- **Backend**: FastAPI (Python 3.9) + Uvicorn
-- **Package manager**: npm (frontend), pip/venv (backend)
-
-## Commands
-
-### Frontend (`frontend/`)
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Vite dev server (http://localhost:5173) |
-| `npm run build` | Build para producción |
-| `npm run preview` | Preview del build |
-| `npm run lint` | ESLint (TypeScript + React Hooks) |
-| `npm run typecheck` | TypeScript compiler (tsc --noEmit) |
-| `npm test` | Vitest test runner (jsdom + Testing Library) |
-
-### Backend (`backend/`)
-
-```bash
-# Activar venv y correr servidor
-source backend/.venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-```
-
-## Architecture
-
-### Clean Architecture — Feature Slices
-
-Cada feature es un módulo vertical con 3 capas:
-
-```
-features/
-└── $feature/
-    ├── data/                    # Capa 1: Acceso a datos
-    │   └── repositories/
-    │       └── NombreRepository.ts
-    ├── domain/                  # Capa 2: Lógica de negocio
-    │   ├── entities/
-    │   │   └── Nombre.ts
-    │   └── errors/
-    │       └── NombreErrors.ts
-    └── presentation/            # Capa 3: UI + Estado
-        ├── components/
-        │   └── NombreComponente.tsx
-        └── store/
-            └── nombreStore.ts
-```
-
-**Features actuales**: `chat`, `canvas`
-**Core compartido**: `core/presentation/layouts/SplitScreenLayout.tsx`
-
-### State Management
-
-- **Zustand** para estado local de features
-- Factory pattern: `createNombreStore(config)` con inyección de repositorio
-- Los stores exponen: estado sincrono + acciones asíncronas (`load*`, `add*`, `update*`)
-
-### Data Layer
-
-- Repository pattern con interfaces
-- Mock implementations con delays simulados (para desarrollo)
-- Fácil swapping a implementaciones reales (API real)
-
-### Dependency Flow
-
-```
-presentation/ → domain/ ← data/
-```
-
-Presentation depende de domain. Domain no depende de nadie. Data implementa interfaces de domain.
-
-## Code Conventions
-
-### TypeScript
-
-- `verbatimModuleSyntax` habilitado — imports/exports exactos
-- `noUnusedLocals: true`, `noUnusedParameters: true`
-- Factory functions sobre clases para entidades: `createDocument()`, `createMessage()`
-- Never barrel imports desde features hacia el exterior
-
-### Nombres
-
-| Tipo | Convención | Ejemplo |
-|------|------------|---------|
-| Componentes React | PascalCase + Sufijo.tsx | `ChatPanel.tsx` |
-| Stores Zustand | camelCase + Sufijo `Store` | `chatStore.ts` |
-| Entidades | PascalCase | `Message.ts`, `Document.ts` |
-| Errores | PascalCase + Sufijo `Error` | `DocumentNotFoundError.ts` |
-| Repositorios | PascalCase + Sufijo `Repository` | `MessageRepository.ts` |
-| Funciones factory | `create` + Nombre entidad | `createMessage()` |
-
-### Errores de Dominio
-
-Patrón por feature:
-
-```
-ChatDomainError (base)
-  └── MessageNotFoundError
-  └── MessageLoadFailure
-
-CanvasDomainError (base)
-  └── DocumentNotFoundError
-  └── DocumentLoadFailure
-```
-
-### Styling
-
-- **Tailwind CSS v4** con `@tailwindcss/typography` para prose
-- Variables CSS para theming en `src/index.css`
-- Ring shadows (`0px 0px 0px 1px`) — NO drop shadows
-- Prefijo `ring-` de Tailwind para bordes cálidos
-
-### Diseño Visual
-
-Referencia: `claude_design_system.md`
-
-- Paleta cálida: Parchment `#f5f4ed`, Terracotta `#c96442`, Charcoal `#141413`
-- Tipografía: Serif headlines, Sans UI, Mono code
-- Warm borders: Border Cream `#f0eee6`, Border Warm `#e8e6dc`
-
-## Testing
-
-- **Vitest** + **jsdom** + **@testing-library/react**
-- Archivos: `src/**/*.{test,spec}.{ts,tsx}`
-- Setup: `src/test/setup.ts` (cleanup + jest-dom matchers)
-- Test store logic (useStore), no testar implementación de React a fondo
-
-## Testing Backend
-
-No tests configurados aún. Estructura: `backend/tests/`
-
-## Rules for Agents
-
-1. **Modo Caveman Lite** — Antes de cualquier respuesta, cargar la skill `caveman` en modo `lite`. Responder de forma ultra-comprimida: sin artículos innecesarios, sin relleno, fragmentación permitida, sinónimos cortos. Mantener toda precisión técnica. Solo desactivarlo temporalmente para advertencias de seguridad o confirmaciones de acciones irreversibles. Reanudar tras resolver.
-
-2. **Git status pre-check** — Antes de empezar a trabajar, ejecutar `git status`. Si hay cambios sin commit NO relacionados con la tarea actual (staged o unstaged), notificar al usuario con la lista de archivos y sugerir hacer commit antes de continuar. Esperar instrucciones. No trabajar sobre working tree sucio. Si los cambios SÍ están relacionados, proceder normalmente.
-
-3. **No modificar `package.json`** para agregar dependencias sin confirmar primero
-
-4. **Seguir feature slice pattern** — todo código nuevo va en `features/$feature/` o `core/`
-
-5. **Usar factory functions** para entidades, no clases
-
-6. **Seguir naming conventions** de arriba
-
-7. **Nunca hardcodear URLs de API** — usar el repositorio pattern
-
-8. **Verificar frontend antes de entregar** — después de cambios en `frontend/`, correr en este orden: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`. Si cualquiera falla, corregir antes de continuar. Si el cambio no toca frontend, omitir.
-
-9. **Mantener consistencia** con los patrones de error existentes (`*DomainError`, `*NotFoundError`, `*LoadFailure`)
-
-10. **No crear archivos de test duplicados** — seguir la estructura `src/test/` que refleja la distribución
-
-11. **No modificar el backend** sin confirmar estructura de directorios
-
-12. **Verificar backend antes de entregar** — después de cambios en `backend/`, activar venv y verificar: `python -m py_compile app/main.py` y `python -c "from app.main import app"`. Si falla, corregir antes de continuar. Si el cambio no toca backend, omitir.
-
-13. **Responder en español**
-
-14. **Pre-entrega final** — antes de marcar tarea como completa, todas las verificaciones relevantes (reglas 8, 12) deben pasar sin errores. Si el cambio es exclusivamente documental (solo archivos `.md`), omitir verificaciones.
-
-15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
-
-## Gaps Conocidos
-
-- `package.json` no tiene: `zustand`, `react-markdown`, `lucide-react`, `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `tailwindcss`, `@tailwindcss/typography`, ESLint plugins
-- No scripts de `lint`, `typecheck`, `test` en package.json (deben agregarse)
-- Backend sin tests, sin base de datos (todo in-memory dummy)
-- `frontend/index.html` referencia `main.jsx`, debería ser `main.tsx`
-- Existen `vite.config.ts` y `vite.config.js` duplicados
-
-## Design System
-
-Para decisiones de diseño (colores, tipografía, espaciado, sombras), consultar `claude_design_system.md`.
-
-### Quick Reference
-
-| Rol | Color | Hex |
-|-----|-------|-----|
-| Background | Parchment | `#f5f4ed` |
-| CTA / Brand | Terracotta | `#c96442` |
-| Card | Ivory | `#faf9f5` |
-| Text | Near Black | `#141413` |
-| Border | Border Cream | `#f0eee6` |
+for tool in [
+    canvas_list, canvas_read, canvas_create, canvas_edit,
+    memory_list, memory_read, memory_write,
+    user_memory_save, user_memory_delete,
+    fs_read, fs_write, fs_list, fs_search,
+    org_entry_write, org_entry_list,
+]:
+    tool_registry.register(tool)
 </file>
 
-<file path="backend/app/agent/service.py">
-import json
-import time as time_module
-import datetime
-from typing import AsyncIterator, Optional
-
-from openai import AsyncOpenAI
-
+<file path="backend/app/main.py">
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.routers import chat, canvas, memory
 from app.config import settings
-from app.agent.tools import tool_registry
-from app.agent.context.user_context import build_user_context_block
-from app.agent.context.org_context import build_org_context_snapshot
-from app.agent.prompts import DOMAIN_AGENT_PROMPT
 
-EVENT_TOOL_CALL_START = "tool_call_start"
-EVENT_TOOL_CALL_END = "tool_call_end"
-EVENT_TEXT_DELTA = "text_delta"
-EVENT_THINKING_START = "thinking_start"
-EVENT_THINKING_DELTA = "thinking_delta"
-EVENT_THINKING_END = "thinking_end"
-EVENT_DONE = "done"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("kraid")
 
-BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
-- canvas: crear, leer, editar y listar documentos del canvas
-- memory: leer, escribir y listar archivos markdown en .kraid/
-- fs: leer, escribir, listar y buscar archivos en el repo
-- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
+app = FastAPI(title="Kraid API", version="0.1.0")
 
-AUTO_MEMORY_INSTRUCTIONS = """
-Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
-Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-Reglas para guardar memoria:
-- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
-- Usa el 'type' correcto:
-  - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
-  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
-  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
-  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
-- Qué NO guardar:
-  - Tokens de API o secretos.
-  - Estados temporales (ej: "estoy reiniciando el server").
-  - Conversaciones enteras o código fuente largo.
-"""
-
-class AgentService:
-    def __init__(self):
-        self._client: Optional[AsyncOpenAI] = None
-        self._models_cache: tuple[list[dict], float] = ([], 0.0)
-        if settings.openai_api_key:
-            self._client = AsyncOpenAI(
-                api_key=settings.openai_api_key,
-                base_url=settings.openai_base_url or None,
-            )
-
-    @property
-    def is_ready(self) -> bool:
-        return self._client is not None
-
-    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
-        if not self._client:
-            yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
-            return
-
-        user_context_block = build_user_context_block(session_id)
-        today = datetime.date.today().isoformat()
-        org_snapshot = build_org_context_snapshot()
-        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
-
-        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
-
-        system_msg = {
-            "role": "system",
-            "content": system_content,
-        }
-        full_messages = [system_msg] + messages
-        model_name = model or settings.openai_model
-        tools = tool_registry.openai_schemas()
-        iteration_count = 0
-
-        while iteration_count < settings.max_tool_iterations:
-            iteration_count += 1
-
-            stream = await self._client.chat.completions.create(
-                model=model_name,
-                messages=full_messages,
-                tools=tools if tools else None,
-                stream=True,
-                stream_options={"include_usage": False},
-            )
-
-            tool_calls_buf: dict[int, dict] = {}
-            text_buffer = ""
-            reasoning_buffer = ""
-            thinking_started = False
-            thinking_start_time = 0.0
-
-            async for chunk in stream:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta is None:
-                    continue
-
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    if not thinking_started:
-                        thinking_started = True
-                        thinking_start_time = time_module.monotonic()
-                        yield json.dumps({"type": EVENT_THINKING_START})
-                    reasoning_buffer += reasoning
-                    yield json.dumps({"type": EVENT_THINKING_DELTA, "content": reasoning})
-
-                if delta.content:
-                    if thinking_started:
-                        elapsed = time_module.monotonic() - thinking_start_time
-                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                        thinking_started = False
-                    text_buffer += delta.content
-                    yield json.dumps({"type": EVENT_TEXT_DELTA, "content": delta.content})
-
-                if delta.tool_calls:
-                    if thinking_started:
-                        elapsed = time_module.monotonic() - thinking_start_time
-                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                        thinking_started = False
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_buf:
-                            tool_calls_buf[idx] = {
-                                "id": tc.id or f"call_{idx}_{iteration_count}",
-                                "function": {"name": "", "arguments": ""},
-                            }
-                        if tc.id:
-                            tool_calls_buf[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tool_calls_buf[idx]["function"]["name"] += tc.function.name
-                            if tc.function.arguments:
-                                tool_calls_buf[idx]["function"]["arguments"] += tc.function.arguments
-
-            if thinking_started:
-                elapsed = time_module.monotonic() - thinking_start_time
-                yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                thinking_started = False
-
-            assistant_msg: dict = {"role": "assistant", "content": text_buffer or None}
-            if reasoning_buffer:
-                assistant_msg["reasoning_content"] = reasoning_buffer
-
-            if not tool_calls_buf:
-                full_messages.append(assistant_msg)
-                yield json.dumps({"type": EVENT_DONE})
-                return
-
-            tool_calls_list = [
-                {
-                    "id": tool_calls_buf[idx]["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tool_calls_buf[idx]["function"]["name"],
-                        "arguments": tool_calls_buf[idx]["function"]["arguments"],
-                    },
-                }
-                for idx in sorted(tool_calls_buf.keys())
-            ]
-            assistant_msg["tool_calls"] = tool_calls_list
-            full_messages.append(assistant_msg)
-
-            for idx in sorted(tool_calls_buf.keys()):
-                tc = tool_calls_buf[idx]
-                fn_name = tc["function"]["name"]
-                fn_args_str = tc["function"]["arguments"]
-                fn_args = {}
-                if fn_args_str.strip():
-                    try:
-                        fn_args = json.loads(fn_args_str)
-                    except json.JSONDecodeError:
-                        fn_args = {"_raw": fn_args_str}
-                
-                # Inject session_id for tools that need it for cache invalidation
-                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
-                    fn_args["session_id"] = session_id
-                
-                tc_id = tc["id"]
-
-                yield json.dumps({
-                    "type": EVENT_TOOL_CALL_START,
-                    "toolCallId": tc_id,
-                    "tool": fn_name,
-                    "input": fn_args,
-                })
-
-                result = await tool_registry.execute(fn_name, fn_args)
-
-                yield json.dumps({
-                    "type": EVENT_TOOL_CALL_END,
-                    "toolCallId": tc_id,
-                    "output": result,
-                    "status": "error" if result.startswith("Error") else "success",
-                })
-
-                full_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": result,
-                })
-
-        yield json.dumps({"type": "error", "content": "Max tool iterations reached"})
-        yield json.dumps({"type": EVENT_DONE})
-
-    async def list_models(self) -> list[dict]:
-        now = time_module.monotonic()
-        cached, timestamp = self._models_cache
-        if cached and now - timestamp < 60:
-            return cached
-        if not self._client:
-            return cached
-        try:
-            response = await self._client.models.list()
-            models = [{"id": m.id, "label": m.id} for m in response.data]
-            self._models_cache = (models, now)
-            return models
-        except Exception:
-            return cached
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(canvas.router, prefix="/api/canvas", tags=["canvas"])
+app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
 
 
-agent_service = AgentService()
-</file>
+@app.on_event("startup")
+def startup():
+    if not settings.openai_api_key:
+        logger.warning("OPENAI_API_KEY not set — agent disabled. POST /api/chat/stream will return 503")
+    else:
+        logger.info("OpenAI agent ready (model=%s, repo=%s)", settings.openai_model, settings.repo_root)
 
-<file path="backend/requirements.txt">
-fastapi
-uvicorn
-pydantic
-pydantic-settings
-python-multipart
-openai>=1.54.0
-python-dotenv>=1.0.0
-sse-starlette>=2.1.0
-cachetools
-watchdog
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "agent_ready": bool(settings.openai_api_key)}
 </file>
 
 <file path="frontend/src/core/presentation/components/icons.tsx">
@@ -5765,13 +5174,15 @@ const WelcomeScreen = ({ onSuggest, agentName }: { onSuggest: (text: string) => 
 );
 
 export const ChatPanel = () => {
-  const { isLoading, isStreaming, error, sendMessage, clearError } = useChatStore();
+  const { isLoading, isStreaming, error, sendMessage, triggerGreeting, clearError } = useChatStore();
   const { activeConversationId, conversations, loadConversations } = useConversationStore();
   const { preferences, openSettings } = useSettingsStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollFab, setShowScrollFab] = useState(false);
   const rafRef = useRef<number>(0);
+  const greetingTriggeredRef = useRef(false);
+  const prevActiveIdRef = useRef<string | null>(null);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = useMemo(() => activeConversation?.messages || [], [activeConversation?.messages]);
@@ -5798,6 +5209,23 @@ export const ChatPanel = () => {
 
     scrollToBottom();
   }, [messages, isLoading, isStreaming, showScrollFab, scrollToBottom]);
+
+  useEffect(() => {
+    const prevId = prevActiveIdRef.current;
+    prevActiveIdRef.current = activeConversationId;
+
+    if (activeConversationId === null && prevId !== null) {
+      greetingTriggeredRef.current = false;
+    }
+
+    const isNewChatClick = activeConversationId === null && prevId !== null;
+    const isFirstTime = prevId === null && conversations.length === 0;
+
+    if (!greetingTriggeredRef.current && (isNewChatClick || isFirstTime) && !isStreaming && !isLoading) {
+      greetingTriggeredRef.current = true;
+      triggerGreeting();
+    }
+  }, [activeConversationId, isStreaming, isLoading, conversations.length, triggerGreeting]);
 
   const handleScroll = useCallback(() => {
     if (rafRef.current) return;
@@ -5888,248 +5316,90 @@ export const ChatPanel = () => {
 };
 </file>
 
-<file path="frontend/src/features/memory/presentation/components/MemoryFileList.tsx">
-import { useState, useMemo } from 'react';
-import { useMemoryStore } from '../store/memoryStore';
-import { SearchIcon, PlusIcon } from '../../../../core/presentation/components/icons';
+<file path="frontend/src/features/memory/data/repositories/MemoryRepository.ts">
+import type { MemoryFile } from '../../domain/entities/MemoryFile';
+import { createMemoryFile } from '../../domain/entities/MemoryFile';
 import type { MemoryFileType } from '../../domain/entities/MemoryFile';
-import { Skeleton } from '../../../../core/presentation/components/Skeleton';
 
-const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Profile', value: 'profile' },
-  { label: 'Projects', value: 'projects' },
-  { label: 'Feedback', value: 'feedback' },
-  { label: 'References', value: 'references' },
+export interface MemoryRepository {
+  getAll(): Promise<MemoryFile[]>;
+  add(file: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile>;
+  update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile>;
+}
+
+const FILES: MemoryFile[] = [
+  createMemoryFile(
+    'mem-1',
+    'user_profile.md',
+    'User Profile',
+    'profile',
+    '# User Profile\n\n## Background\n\nFull-stack developer with 8+ years of experience building web applications. Strong preference for TypeScript, React, and Python. Passionate about clean architecture, developer experience, and well-designed APIs.\n\n## Technical Stack\n\n- **Frontend**: React 19, TypeScript, Tailwind CSS\n- **Backend**: Python, FastAPI\n- **Tools**: Git, VSCode, Neovim\n- **Interests**: System design, DX tooling, open source\n\n## Preferences\n\n- Prefers concise, direct communication\n- Values well-structured code over clever one-liners\n- Enjoys exploring new frameworks and paradigms\n- Works best with clear specifications and iterative feedback',
+    new Date('2024-03-15T10:00:00'),
+  ),
+  createMemoryFile(
+    'mem-2',
+    'project_kraid.md',
+    'Project Kraid',
+    'projects',
+    '# Project Kraid\n\n## Overview\n\nKraid is a full-stack monorepo workspace designed as an AI-assisted development environment.\n\n## Architecture\n\n- **Monorepo** with `frontend/` and `backend/` directories\n- **Frontend**: Vite + React 19 + TypeScript + Tailwind CSS v4\n- **Backend**: FastAPI (Python 3.9+) + Uvicorn\n- **State**: Zustand stores with repository injection\n- **Pattern**: Clean Architecture with Feature Slices\n\n## Roadmap\n\n1. Memory file viewer (current)\n2. Real API integration\n3. Authentication & user sessions\n4. Collaborative editing',
+    new Date('2024-03-20T14:00:00'),
+  ),
+  createMemoryFile(
+    'mem-3',
+    'feedback_coding_style.md',
+    'Feedback: Coding Style',
+    'feedback',
+    '# Coding Style Feedback\n\n## Strengths\n\n- Clean separation of concerns following feature-slice pattern\n- Consistent error handling with domain-specific error classes\n- Good use of factory functions over classes\n- Proper typing with strict TypeScript configuration\n\n## Areas for Improvement\n\n### 1. File Length\nSome components (MarkdownCanvas) are approaching 200 lines. Consider extracting the footer and header into sub-components.\n\n### 2. Comments\nCodebase is mostly comment-free which is good, but complex logic blocks could benefit from brief inline explanations.\n\n### 3. Testing\nTest coverage is minimal. Core stores and repositories should have unit tests.\n\n### 4. CSS Organization\nTailwind classes are verbose in some components. Consider extracting repeated patterns into reusable components.',
+    new Date('2024-04-01T09:00:00'),
+  ),
+  createMemoryFile(
+    'mem-4',
+    'feedback_communication.md',
+    'Feedback: Communication',
+    'feedback',
+    '# Communication Feedback\n\n## Session Patterns\n\n- User prefers direct, no-filler responses\n- Technical explanations should be concise: state the problem, show the fix, move on\n- When exploring code, highlight file paths and line numbers\n\n## Response Style\n\n- Use bullet points for multiple items\n- Code blocks should be focused, not whole files\n- When suggesting architecture changes, explain trade-offs briefly\n\n## Preferences\n\n- Cave-man mode acceptable for routine tasks\n- Full explanations needed for security-related decisions\n- User appreciates parallel execution of independent tasks',
+    new Date('2024-04-05T16:00:00'),
+  ),
+  createMemoryFile(
+    'mem-5',
+    'reference_architecture.md',
+    'Reference Architecture',
+    'references',
+    '# Kraid Architecture Reference\n\n## Clean Architecture — Feature Slices\n\n```\nfeatures/\n  $feature/\n    data/\n      repositories/\n        NombreRepository.ts\n    domain/\n      entities/\n        Nombre.ts\n      errors/\n        NombreErrors.ts\n    presentation/\n      components/\n        NombreComponente.tsx\n      store/\n        nombreStore.ts\n```\n\n## Dependency Flow\n\n```\npresentation/ -> domain/ <- data/\n```\n\nPresentation depends on domain. Domain depends on nothing. Data implements domain interfaces.\n\n## Conventions\n\n| Type | Convention | Example |\n|------|------------|--------|\n| Components | PascalCase + .tsx | `ChatPanel.tsx` |\n| Stores | camelCase + `Store` suffix | `chatStore.ts` |\n| Entities | PascalCase | `Message.ts` |\n| Errors | PascalCase + `Error` suffix | `DocumentNotFoundError.ts` |\n| Repositories | PascalCase + `Repository` suffix | `MessageRepository.ts` |\n| Factory fn | `create` + Entity name | `createMessage()` |',
+    new Date('2024-04-10T12:00:00'),
+  ),
 ];
 
-const typeStyles: Record<MemoryFileType, { dot: string; badge: string }> = {
-  profile: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
-  projects: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
-  feedback: { dot: 'bg-amber-400', badge: 'bg-amber-400/10 text-amber-700' },
-  references: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
-};
+export class MockMemoryRepository implements MemoryRepository {
+  private files: MemoryFile[] = FILES.map((f) => ({ ...f }));
 
-const typeLabels: Record<MemoryFileType, string> = {
-  profile: 'Profile',
-  projects: 'Projects',
-  feedback: 'Feedback',
-  references: 'References',
-};
+  async getAll(): Promise<MemoryFile[]> {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return this.files.map((f) => ({ ...f }));
+  }
 
-const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
-  { label: 'Profile', value: 'profile' },
-  { label: 'Projects', value: 'projects' },
-  { label: 'Feedback', value: 'feedback' },
-  { label: 'References', value: 'references' },
-];
+  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const file = createMemoryFile(`mem-${Date.now()}`, data.filename, data.title, data.type, data.content);
+    this.files.push(file);
+    return { ...file };
+  }
 
-const formatRelativeTime = (date: Date): string => {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return date.toLocaleDateString([], { dateStyle: 'medium' });
-};
+  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const idx = this.files.findIndex((f) => f.id === id);
+    if (idx < 0) throw new Error('Memory file not found');
+    this.files[idx] = {
+      ...this.files[idx],
+      ...data,
+      lastModified: new Date(),
+      wordCount: (data.content ?? this.files[idx].content).trim().split(/\s+/).filter((w) => w.length > 0).length,
+    };
+    return { ...this.files[idx] };
+  }
+}
 
-const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
-  const [type, setType] = useState<MemoryFileType>('user');
-  const [title, setTitle] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    onCreate(type, title.trim());
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-80 rounded-2xl bg-card p-5 shadow-xl ring-1 ring-border animate-scale-in" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 font-serif text-base font-medium text-text">New Memory</h3>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Architecture Decision"
-              className="w-full rounded-lg border border-border-warm bg-bg px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent placeholder:text-olive-gray"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Type</label>
-            <div className="flex gap-1.5">
-              {newTypeOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setType(opt.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    type === opt.value
-                      ? 'bg-accent text-ivory'
-                      : 'bg-warm-sand text-charcoal-warm hover:bg-border-warm'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-charcoal-warm transition-colors hover:bg-warm-sand">
-              Cancel
-            </button>
-            <button type="submit" disabled={!title.trim()} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-ivory transition-colors hover:bg-coral disabled:opacity-40">
-              Create
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-export const MemoryFileList = () => {
-  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
-  const [showNewModal, setShowNewModal] = useState(false);
-
-  const filteredFiles = useMemo(() => {
-    let result = files;
-    if (activeFilter !== 'all') {
-      result = result.filter((f) => f.type === activeFilter);
-    }
-    if (searchQuery.trim()) {
-      const lower = searchQuery.toLowerCase();
-      result = result.filter(
-        (f) =>
-          f.title.toLowerCase().includes(lower) ||
-          f.filename.toLowerCase().includes(lower),
-      );
-    }
-    return result;
-  }, [files, activeFilter, searchQuery]);
-
-  const handleCreate = async (type: MemoryFileType, title: string) => {
-    await addFile(type, title);
-  };
-
-  return (
-    <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
-      <div className="border-b border-border-cream px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-text">Memory Files</h3>
-          <span className="rounded-full bg-warm-sand px-2 py-0.5 text-xs text-olive-gray">
-            {files.length}
-          </span>
-        </div>
-      </div>
-
-      <div className="border-b border-border-cream px-4 py-3">
-        <div className="relative">
-          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-warm" />
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg px-9 py-2 text-sm text-text placeholder-charcoal-warm outline-none focus:ring-2 focus:ring-accent"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-1.5 border-b border-border-cream px-4 py-2.5">
-        <div className="flex flex-wrap gap-1.5">
-          {FILE_TYPES.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setActiveFilter(t.value)}
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                activeFilter === t.value
-                  ? 'bg-accent/10 text-accent'
-                  : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-olive-gray transition-colors hover:bg-accent/10 hover:text-accent"
-          title="New Memory"
-        >
-          <PlusIcon className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {isLoading && files.length === 0 ? (
-          <div className="space-y-2 p-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-3/4" />
-          </div>
-        ) : filteredFiles.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <p className="text-sm text-charcoal-warm">No files yet</p>
-            <button
-              onClick={() => setShowNewModal(true)}
-              className="mt-2 text-xs text-accent transition-colors hover:text-coral"
-            >
-              Create your first memory
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-0.5 px-2 py-2">
-            {filteredFiles.map((file) => {
-              const styles = typeStyles[file.type];
-              return (
-                <button
-                  key={file.id}
-                  onClick={() => selectFile(file.id)}
-                  className={`group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    selectedFileId === file.id
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                  }`}
-                >
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{file.title}</div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}>
-                        {typeLabels[file.type]}
-                      </span>
-                      <span className="text-[11px] text-olive-gray">
-                        {formatRelativeTime(file.lastModified)}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {showNewModal && (
-        <NewMemoryModal
-          onClose={() => setShowNewModal(false)}
-          onCreate={handleCreate}
-        />
-      )}
-    </div>
-  );
-};
+export const mockMemoryRepository = new MockMemoryRepository();
 </file>
 
 <file path="frontend/src/features/memory/presentation/components/MemoryViewer.tsx">
@@ -6152,6 +5422,508 @@ export const MemoryViewer = () => {
     </div>
   );
 };
+</file>
+
+<file path="frontend/src/features/memory/presentation/store/memoryStore.ts">
+import { create } from 'zustand';
+import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
+import type { MemoryRepository } from '../../data/repositories/MemoryRepository';
+import { httpMemoryRepository } from '../../data/repositories/HttpMemoryRepository';
+
+interface MemoryState {
+  files: MemoryFile[];
+  selectedFileId: string | null;
+  isLoading: boolean;
+  error: string | null;
+  isEditing: boolean;
+  loadFiles: () => Promise<void>;
+  selectFile: (id: string | null) => void;
+  addFile: (type: MemoryFileType, title: string) => Promise<void>;
+  updateFile: (id: string, data: { title?: string; type?: MemoryFileType; content?: string }) => Promise<void>;
+  setEditing: (editing: boolean) => void;
+}
+
+export const createMemoryStore = (repository: MemoryRepository = httpMemoryRepository) =>
+  create<MemoryState>((set) => ({
+    files: [],
+    selectedFileId: null,
+    isLoading: false,
+    error: null,
+    isEditing: false,
+
+    loadFiles: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const files = await repository.getAll();
+        set({ files, isLoading: false });
+      } catch {
+        set({ error: 'Failed to load memory files', isLoading: false });
+      }
+    },
+
+    selectFile: (id: string | null) => set({ selectedFileId: id, isEditing: false }),
+
+    addFile: async (type: MemoryFileType, title: string) => {
+      try {
+        const filename = title.toLowerCase().replace(/\s+/g, '_') + '.md';
+        const file = await repository.add({ title, filename, type, content: `# ${title}\n\n` });
+        set((state) => ({
+          files: [...state.files, file],
+          selectedFileId: file.id,
+          isEditing: true,
+        }));
+      } catch {
+        set({ error: 'Failed to create memory file' });
+      }
+    },
+
+    updateFile: async (id: string, data: { title?: string; type?: MemoryFileType; content?: string }) => {
+      try {
+        const updated = await repository.update(id, data);
+        set((state) => ({
+          files: state.files.map((f) => (f.id === id ? updated : f)),
+        }));
+      } catch {
+        set({ error: 'Failed to update memory file' });
+      }
+    },
+
+    setEditing: (editing: boolean) => set({ isEditing: editing }),
+  }));
+
+export const useMemoryStore = createMemoryStore();
+</file>
+
+<file path="AGENTS.md">
+# AGENTS.md — Kraid
+
+## Project Identity
+
+**Kraid** es un monorepo full-stack:
+
+- **Frontend**: React 19 + Vite 6 + Tailwind CSS v4 + TypeScript (ES2023)
+- **Backend**: FastAPI (Python 3.9) + Uvicorn
+- **Package manager**: npm (frontend), pip/venv (backend)
+
+## Commands
+
+### Frontend (`frontend/`)
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Vite dev server (http://localhost:5173) |
+| `npm run build` | Build para producción |
+| `npm run preview` | Preview del build |
+| `npm run lint` | ESLint (TypeScript + React Hooks) |
+| `npm run typecheck` | TypeScript compiler (tsc --noEmit) |
+| `npm test` | Vitest test runner (jsdom + Testing Library) |
+
+### Backend (`backend/`)
+
+```bash
+# Activar venv y correr servidor
+source backend/.venv/bin/activate
+uvicorn app.main:app --reload --port 8000
+```
+
+## Architecture
+
+### Clean Architecture — Feature Slices
+
+Cada feature es un módulo vertical con 3 capas:
+
+```
+features/
+└── $feature/
+    ├── data/                    # Capa 1: Acceso a datos
+    │   └── repositories/
+    │       └── NombreRepository.ts
+    ├── domain/                  # Capa 2: Lógica de negocio
+    │   ├── entities/
+    │   │   └── Nombre.ts
+    │   └── errors/
+    │       └── NombreErrors.ts
+    └── presentation/            # Capa 3: UI + Estado
+        ├── components/
+        │   └── NombreComponente.tsx
+        └── store/
+            └── nombreStore.ts
+```
+
+**Features actuales**: `chat`, `canvas`
+**Core compartido**: `core/presentation/layouts/SplitScreenLayout.tsx`
+
+### State Management
+
+- **Zustand** para estado local de features
+- Factory pattern: `createNombreStore(config)` con inyección de repositorio
+- Los stores exponen: estado sincrono + acciones asíncronas (`load*`, `add*`, `update*`)
+
+### Data Layer
+
+- Repository pattern con interfaces
+- Mock implementations con delays simulados (para desarrollo)
+- Fácil swapping a implementaciones reales (API real)
+
+### Dependency Flow
+
+```
+presentation/ → domain/ ← data/
+```
+
+Presentation depende de domain. Domain no depende de nadie. Data implementa interfaces de domain.
+
+## Code Conventions
+
+### TypeScript
+
+- `verbatimModuleSyntax` habilitado — imports/exports exactos
+- `noUnusedLocals: true`, `noUnusedParameters: true`
+- Factory functions sobre clases para entidades: `createDocument()`, `createMessage()`
+- Never barrel imports desde features hacia el exterior
+
+### Nombres
+
+| Tipo | Convención | Ejemplo |
+|------|------------|---------|
+| Componentes React | PascalCase + Sufijo.tsx | `ChatPanel.tsx` |
+| Stores Zustand | camelCase + Sufijo `Store` | `chatStore.ts` |
+| Entidades | PascalCase | `Message.ts`, `Document.ts` |
+| Errores | PascalCase + Sufijo `Error` | `DocumentNotFoundError.ts` |
+| Repositorios | PascalCase + Sufijo `Repository` | `MessageRepository.ts` |
+| Funciones factory | `create` + Nombre entidad | `createMessage()` |
+
+### Errores de Dominio
+
+Patrón por feature:
+
+```
+ChatDomainError (base)
+  └── MessageNotFoundError
+  └── MessageLoadFailure
+
+CanvasDomainError (base)
+  └── DocumentNotFoundError
+  └── DocumentLoadFailure
+```
+
+### Styling
+
+- **Tailwind CSS v4** con `@tailwindcss/typography` para prose
+- Variables CSS para theming en `src/index.css`
+- Ring shadows (`0px 0px 0px 1px`) — NO drop shadows
+- Prefijo `ring-` de Tailwind para bordes cálidos
+
+### Diseño Visual
+
+Referencia: `claude_design_system.md`
+
+- Paleta cálida: Parchment `#f5f4ed`, Terracotta `#c96442`, Charcoal `#141413`
+- Tipografía: Serif headlines, Sans UI, Mono code
+- Warm borders: Border Cream `#f0eee6`, Border Warm `#e8e6dc`
+
+## Testing
+
+- **Vitest** + **jsdom** + **@testing-library/react**
+- Archivos: `src/**/*.{test,spec}.{ts,tsx}`
+- Setup: `src/test/setup.ts` (cleanup + jest-dom matchers)
+- Test store logic (useStore), no testar implementación de React a fondo
+
+## Testing Backend
+
+No tests configurados aún. Estructura: `backend/tests/`
+
+## Rules for Agents
+
+1. **Modo Caveman Lite** — Antes de cualquier respuesta, cargar la skill `caveman` en modo `lite`. Responder de forma ultra-comprimida: sin artículos innecesarios, sin relleno, fragmentación permitida, sinónimos cortos. Mantener toda precisión técnica. Solo desactivarlo temporalmente para advertencias de seguridad o confirmaciones de acciones irreversibles. Reanudar tras resolver.
+
+2. **Git status pre-check** — Antes de empezar a trabajar, ejecutar `git status`. Si hay cambios sin commit NO relacionados con la tarea actual (staged o unstaged), notificar al usuario con la lista de archivos y sugerir hacer commit antes de continuar. Esperar instrucciones. No trabajar sobre working tree sucio. Si los cambios SÍ están relacionados, proceder normalmente.
+
+3. **No modificar `package.json`** para agregar dependencias sin confirmar primero
+
+4. **Seguir feature slice pattern** — todo código nuevo va en `features/$feature/` o `core/`
+
+5. **Usar factory functions** para entidades, no clases
+
+6. **Seguir naming conventions** de arriba
+
+7. **Nunca hardcodear URLs de API** — usar el repositorio pattern
+
+8. **Verificar frontend antes de entregar** — después de cambios en `frontend/`, correr en este orden: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`. Si cualquiera falla, corregir antes de continuar. Si el cambio no toca frontend, omitir.
+
+9. **Mantener consistencia** con los patrones de error existentes (`*DomainError`, `*NotFoundError`, `*LoadFailure`)
+
+10. **No crear archivos de test duplicados** — seguir la estructura `src/test/` que refleja la distribución
+
+11. **No modificar el backend** sin confirmar estructura de directorios
+
+12. **Verificar backend antes de entregar** — después de cambios en `backend/`, activar venv y verificar: `python -m py_compile app/main.py` y `python -c "from app.main import app"`. Si falla, corregir antes de continuar. Si el cambio no toca backend, omitir.
+
+13. **Responder en español**
+
+14. **Pre-entrega final** — antes de marcar tarea como completa, todas las verificaciones relevantes (reglas 8, 12) deben pasar sin errores. Si el cambio es exclusivamente documental (solo archivos `.md`), omitir verificaciones.
+
+15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
+
+16. **Tener listo el commit** para subir y pedir confirmacion.
+
+## Gaps Conocidos
+
+- `package.json` no tiene: `zustand`, `react-markdown`, `lucide-react`, `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `tailwindcss`, `@tailwindcss/typography`, ESLint plugins
+- No scripts de `lint`, `typecheck`, `test` en package.json (deben agregarse)
+- Backend sin tests, sin base de datos (todo in-memory dummy)
+- `frontend/index.html` referencia `main.jsx`, debería ser `main.tsx`
+- Existen `vite.config.ts` y `vite.config.js` duplicados
+
+## Design System
+
+Para decisiones de diseño (colores, tipografía, espaciado, sombras), consultar `claude_design_system.md`.
+
+### Quick Reference
+
+| Rol | Color | Hex |
+|-----|-------|-----|
+| Background | Parchment | `#f5f4ed` |
+| CTA / Brand | Terracotta | `#c96442` |
+| Card | Ivory | `#faf9f5` |
+| Text | Near Black | `#141413` |
+| Border | Border Cream | `#f0eee6` |
+</file>
+
+<file path="backend/app/agent/service.py">
+import json
+import time as time_module
+import datetime
+from typing import AsyncIterator, Optional
+
+from openai import AsyncOpenAI
+
+from app.config import settings
+from app.agent.tools import tool_registry
+from app.agent.context.user_context import build_user_context_block
+from app.agent.context.org_context import build_org_context_snapshot
+from app.agent.prompts import DOMAIN_AGENT_PROMPT
+
+EVENT_TOOL_CALL_START = "tool_call_start"
+EVENT_TOOL_CALL_END = "tool_call_end"
+EVENT_TEXT_DELTA = "text_delta"
+EVENT_THINKING_START = "thinking_start"
+EVENT_THINKING_DELTA = "thinking_delta"
+EVENT_THINKING_END = "thinking_end"
+EVENT_DONE = "done"
+
+BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
+- canvas: crear, leer, editar y listar documentos del canvas
+- memory: leer, escribir y listar archivos markdown en .kraid/
+- fs: leer, escribir, listar y buscar archivos en el repo
+- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
+
+AUTO_MEMORY_INSTRUCTIONS = """
+Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
+Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+
+Reglas para guardar memoria:
+- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
+- Usa el 'type' correcto:
+  - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
+  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
+  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
+  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
+- Qué NO guardar:
+  - Tokens de API o secretos.
+  - Estados temporales (ej: "estoy reiniciando el server").
+  - Conversaciones enteras o código fuente largo.
+"""
+
+class AgentService:
+    def __init__(self):
+        self._client: Optional[AsyncOpenAI] = None
+        self._models_cache: tuple[list[dict], float] = ([], 0.0)
+        if settings.openai_api_key:
+            self._client = AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url or None,
+            )
+
+    @property
+    def is_ready(self) -> bool:
+        return self._client is not None
+
+    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
+        if not self._client:
+            yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
+            return
+
+        user_context_block = build_user_context_block(session_id)
+        today = datetime.date.today().isoformat()
+        org_snapshot = build_org_context_snapshot()
+        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
+
+        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
+
+        system_msg = {
+            "role": "system",
+            "content": system_content,
+        }
+
+        if not messages:
+            activation_prompt = {
+                "role": "user",
+                "content": "El usuario ha iniciado una nueva sesión. Salúdalo de forma cálida y proactiva basándose en su perfil y proyectos actuales. No menciones que estás leyendo su perfil, simplemente sé útil"
+            }
+            full_messages = [system_msg, activation_prompt]
+        else:
+            full_messages = [system_msg] + messages
+        model_name = model or settings.openai_model
+        tools = tool_registry.openai_schemas()
+        iteration_count = 0
+
+        while iteration_count < settings.max_tool_iterations:
+            iteration_count += 1
+
+            stream = await self._client.chat.completions.create(
+                model=model_name,
+                messages=full_messages,
+                tools=tools if tools else None,
+                stream=True,
+                stream_options={"include_usage": False},
+            )
+
+            tool_calls_buf: dict[int, dict] = {}
+            text_buffer = ""
+            reasoning_buffer = ""
+            thinking_started = False
+            thinking_start_time = 0.0
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
+
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    if not thinking_started:
+                        thinking_started = True
+                        thinking_start_time = time_module.monotonic()
+                        yield json.dumps({"type": EVENT_THINKING_START})
+                    reasoning_buffer += reasoning
+                    yield json.dumps({"type": EVENT_THINKING_DELTA, "content": reasoning})
+
+                if delta.content:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
+                    text_buffer += delta.content
+                    yield json.dumps({"type": EVENT_TEXT_DELTA, "content": delta.content})
+
+                if delta.tool_calls:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_buf:
+                            tool_calls_buf[idx] = {
+                                "id": tc.id or f"call_{idx}_{iteration_count}",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if tc.id:
+                            tool_calls_buf[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_buf[idx]["function"]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_buf[idx]["function"]["arguments"] += tc.function.arguments
+
+            if thinking_started:
+                elapsed = time_module.monotonic() - thinking_start_time
+                yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                thinking_started = False
+
+            assistant_msg: dict = {"role": "assistant", "content": text_buffer or None}
+            if reasoning_buffer:
+                assistant_msg["reasoning_content"] = reasoning_buffer
+
+            if not tool_calls_buf:
+                full_messages.append(assistant_msg)
+                yield json.dumps({"type": EVENT_DONE})
+                return
+
+            tool_calls_list = [
+                {
+                    "id": tool_calls_buf[idx]["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tool_calls_buf[idx]["function"]["name"],
+                        "arguments": tool_calls_buf[idx]["function"]["arguments"],
+                    },
+                }
+                for idx in sorted(tool_calls_buf.keys())
+            ]
+            assistant_msg["tool_calls"] = tool_calls_list
+            full_messages.append(assistant_msg)
+
+            for idx in sorted(tool_calls_buf.keys()):
+                tc = tool_calls_buf[idx]
+                fn_name = tc["function"]["name"]
+                fn_args_str = tc["function"]["arguments"]
+                fn_args = {}
+                if fn_args_str.strip():
+                    try:
+                        fn_args = json.loads(fn_args_str)
+                    except json.JSONDecodeError:
+                        fn_args = {"_raw": fn_args_str}
+                
+                # Inject session_id for tools that need it for cache invalidation
+                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
+                    fn_args["session_id"] = session_id
+                
+                tc_id = tc["id"]
+
+                yield json.dumps({
+                    "type": EVENT_TOOL_CALL_START,
+                    "toolCallId": tc_id,
+                    "tool": fn_name,
+                    "input": fn_args,
+                })
+
+                result = await tool_registry.execute(fn_name, fn_args)
+
+                yield json.dumps({
+                    "type": EVENT_TOOL_CALL_END,
+                    "toolCallId": tc_id,
+                    "output": result,
+                    "status": "error" if result.startswith("Error") else "success",
+                })
+
+                full_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": result,
+                })
+
+        yield json.dumps({"type": "error", "content": "Max tool iterations reached"})
+        yield json.dumps({"type": EVENT_DONE})
+
+    async def list_models(self) -> list[dict]:
+        now = time_module.monotonic()
+        cached, timestamp = self._models_cache
+        if cached and now - timestamp < 60:
+            return cached
+        if not self._client:
+            return cached
+        try:
+            response = await self._client.models.list()
+            models = [{"id": m.id, "label": m.id} for m in response.data]
+            self._models_cache = (models, now)
+            return models
+        except Exception:
+            return cached
+
+
+agent_service = AgentService()
 </file>
 
 <file path="backend/app/routers/chat.py">
@@ -6188,6 +5960,19 @@ async def list_models():
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
     models = await agent_service.list_models()
     return {"models": models}
+</file>
+
+<file path="backend/requirements.txt">
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+python-multipart
+openai>=1.54.0
+python-dotenv>=1.0.0
+sse-starlette>=2.1.0
+cachetools
+watchdog
 </file>
 
 <file path="frontend/src/features/canvas/presentation/components/MarkdownCanvas.tsx">
@@ -6700,42 +6485,248 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
 };
 </file>
 
-<file path="frontend/src/App.tsx">
-import { useEffect } from 'react';
-import { SplitScreenLayout } from './core/presentation/layouts/SplitScreenLayout';
-import { ChatPanel } from './features/chat/presentation/components/ChatPanel';
-import { MarkdownCanvas } from './features/canvas/presentation/components/MarkdownCanvas';
-import { MemoryViewer } from './features/memory/presentation/components/MemoryViewer';
-import { ThemeProvider } from './features/settings/presentation/components/ThemeProvider';
-import { SettingsModal } from './features/settings/presentation/components/SettingsModal';
-import { CommandPalette } from './core/presentation/components/CommandPalette';
-import { ToastProvider } from './core/presentation/components/Toast/ToastProvider';
-import { useSettingsStore } from './core/presentation/store/settingsStore';
-import { useMemoryWatcher } from './features/memory/presentation/hooks/useMemoryWatcher';
+<file path="frontend/src/features/memory/presentation/components/MemoryFileList.tsx">
+import { useState, useMemo } from 'react';
+import { useMemoryStore } from '../store/memoryStore';
+import { SearchIcon, PlusIcon } from '../../../../core/presentation/components/icons';
+import type { MemoryFileType } from '../../domain/entities/MemoryFile';
+import { Skeleton } from '../../../../core/presentation/components/Skeleton';
 
-function App() {
-  const loadModels = useSettingsStore((s) => s.loadModels);
-  useMemoryWatcher();
+const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
+  { label: 'All', value: 'all' },
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
+  { label: 'Feedback', value: 'feedback' },
+  { label: 'References', value: 'references' },
+];
 
-  useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
+const typeStyles: Record<MemoryFileType, { dot: string; badge: string }> = {
+  profile: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
+  projects: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
+  feedback: { dot: 'bg-amber-400', badge: 'bg-amber-400/10 text-amber-700' },
+  references: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
+};
+
+const typeLabels: Record<MemoryFileType, string> = {
+  profile: 'Profile',
+  projects: 'Projects',
+  feedback: 'Feedback',
+  references: 'References',
+};
+
+const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
+  { label: 'Feedback', value: 'feedback' },
+  { label: 'References', value: 'references' },
+];
+
+const formatRelativeTime = (date: Date): string => {
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return date.toLocaleDateString([], { dateStyle: 'medium' });
+};
+
+const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
+  const [type, setType] = useState<MemoryFileType>('user');
+  const [title, setTitle] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    onCreate(type, title.trim());
+    onClose();
+  };
 
   return (
-    <ThemeProvider>
-      <SplitScreenLayout
-        leftPanel={<ChatPanel />}
-        rightPanel={<MarkdownCanvas />}
-        memoryPanel={<MemoryViewer />}
-      />
-      <SettingsModal />
-      <CommandPalette />
-      <ToastProvider />
-    </ThemeProvider>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-80 rounded-2xl bg-card p-5 shadow-xl ring-1 ring-border animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 font-serif text-base font-medium text-text">New Memory</h3>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Architecture Decision"
+              className="w-full rounded-lg border border-border-warm bg-bg px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent placeholder:text-olive-gray"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Type</label>
+            <div className="flex gap-1.5">
+              {newTypeOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setType(opt.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    type === opt.value
+                      ? 'bg-accent text-ivory'
+                      : 'bg-warm-sand text-charcoal-warm hover:bg-border-warm'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-charcoal-warm transition-colors hover:bg-warm-sand">
+              Cancel
+            </button>
+            <button type="submit" disabled={!title.trim()} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-ivory transition-colors hover:bg-coral disabled:opacity-40">
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
-}
+};
 
-export default App;
+export const MemoryFileList = () => {
+  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
+  const [showNewModal, setShowNewModal] = useState(false);
+
+  const filteredFiles = useMemo(() => {
+    let result = files;
+    if (activeFilter !== 'all') {
+      result = result.filter((f) => f.type === activeFilter);
+    }
+    if (searchQuery.trim()) {
+      const lower = searchQuery.toLowerCase();
+      result = result.filter(
+        (f) =>
+          f.title.toLowerCase().includes(lower) ||
+          f.filename.toLowerCase().includes(lower),
+      );
+    }
+    return result;
+  }, [files, activeFilter, searchQuery]);
+
+  const handleCreate = async (type: MemoryFileType, title: string) => {
+    await addFile(type, title);
+  };
+
+  return (
+    <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
+      <div className="border-b border-border-cream px-4 py-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-text">Memory Files</h3>
+          <span className="rounded-full bg-warm-sand px-2 py-0.5 text-xs text-olive-gray">
+            {files.length}
+          </span>
+        </div>
+      </div>
+
+      <div className="border-b border-border-cream px-4 py-3">
+        <div className="relative">
+          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-warm" />
+          <input
+            type="text"
+            placeholder="Search files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-border bg-bg px-9 py-2 text-sm text-text placeholder-charcoal-warm outline-none focus:ring-2 focus:ring-accent"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-1.5 border-b border-border-cream px-4 py-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {FILE_TYPES.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setActiveFilter(t.value)}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                activeFilter === t.value
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowNewModal(true)}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-olive-gray transition-colors hover:bg-accent/10 hover:text-accent"
+          title="New Memory"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {isLoading && files.length === 0 ? (
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-3/4" />
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-charcoal-warm">No files yet</p>
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="mt-2 text-xs text-accent transition-colors hover:text-coral"
+            >
+              Create your first memory
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5 px-2 py-2">
+            {filteredFiles.map((file) => {
+              const styles = typeStyles[file.type];
+              return (
+                <button
+                  key={file.id}
+                  onClick={() => selectFile(file.id)}
+                  className={`group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                    selectedFileId === file.id
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  }`}
+                >
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{file.title}</div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}>
+                        {typeLabels[file.type]}
+                      </span>
+                      <span className="text-[11px] text-olive-gray">
+                        {formatRelativeTime(file.lastModified)}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showNewModal && (
+        <NewMemoryModal
+          onClose={() => setShowNewModal(false)}
+          onCreate={handleCreate}
+        />
+      )}
+    </div>
+  );
+};
 </file>
 
 <file path="frontend/src/index.css">
@@ -7027,6 +7018,44 @@ env/
 .kraid/
 </file>
 
+<file path="frontend/src/App.tsx">
+import { useEffect } from 'react';
+import { SplitScreenLayout } from './core/presentation/layouts/SplitScreenLayout';
+import { ChatPanel } from './features/chat/presentation/components/ChatPanel';
+import { MarkdownCanvas } from './features/canvas/presentation/components/MarkdownCanvas';
+import { MemoryViewer } from './features/memory/presentation/components/MemoryViewer';
+import { ThemeProvider } from './features/settings/presentation/components/ThemeProvider';
+import { SettingsModal } from './features/settings/presentation/components/SettingsModal';
+import { CommandPalette } from './core/presentation/components/CommandPalette';
+import { ToastProvider } from './core/presentation/components/Toast/ToastProvider';
+import { useSettingsStore } from './core/presentation/store/settingsStore';
+import { useMemoryWatcher } from './features/memory/presentation/hooks/useMemoryWatcher';
+
+function App() {
+  const loadModels = useSettingsStore((s) => s.loadModels);
+  useMemoryWatcher();
+
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
+
+  return (
+    <ThemeProvider>
+      <SplitScreenLayout
+        leftPanel={<ChatPanel />}
+        rightPanel={<MarkdownCanvas />}
+        memoryPanel={<MemoryViewer />}
+      />
+      <SettingsModal />
+      <CommandPalette />
+      <ToastProvider />
+    </ThemeProvider>
+  );
+}
+
+export default App;
+</file>
+
 <file path="frontend/src/core/presentation/layouts/SplitScreenLayout.tsx">
 import { useState, useRef, useEffect } from 'react';
 import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
@@ -7101,7 +7130,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
+    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
       <div className="flex flex-1 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
@@ -7193,121 +7222,6 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 };
 </file>
 
-<file path="CHANGELOG.md">
-# Changelog
-
-## [Unreleased]
-
-### Added
-
-- **User Context System**: Implementado sistema de memoria auto-generada en `.kraid/`. El backend inyecta `PREFERENCES.md` y metadata de memorias en el system prompt (con caché TTLCache de 30 minutos). Frontend envía `session_id` en peticiones de stream para invalidación. Nuevas tools `user_memory_save` y `user_memory_delete` para guardar contexto (profile, feedback, projects, references) proactivamente.
-
-- **Model picker**: Dropdown en composer con lista dinámica desde gateway OpenAI-compatible vía `GET /api/chat/models`. `ModelPicker` con keyboard-nav (ArrowDown/Up/Enter/Escape), estado vacío "No models" y checkmark en modelo activo. `settingsStore` con persistencia en `localStorage` (`kraid:selected-model`). Caché de modelos en backend 60s.
-- **Thinking streaming real**: Backend emite `thinking_start/delta/end` durante fase de reasoning. Frontend acumula contenido en vivo en `eventsToParts`. `ThinkingBlock` auto-expandido durante streaming, auto-colapsa al terminar con duración.
-- **Tool call visibility**: `ToolCallBlock` expandido por defecto mientras `running`, auto-colapsa en `success/error`. `ModelPicker` en `ContextChips` reemplaza chip estático de modelo.
-
-### Changed
-
-- **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
-- **StatusBar**: Lee modelo activo desde `settingsStore.selectedModel` con fallback a `agentStatusStore.modelName`.
-- **chatStore**: Pasa `selectedModel` al `httpStreamingRepository.stream()`.
-- **HttpStreamingRepository**: `stream()` acepta `model` opcional. Nuevo método `listModels()`.
-- **ContextChips**: Eliminada prop `modelName`, renderiza `<ModelPicker />`.
-- **ChatInput**: Eliminado prop `modelName` del callsite de `ContextChips`.
-- **App.tsx**: `useEffect` montaje dispara `loadModels()`.
-
-### Fixed
-
-- **Thinking content vacío**: `eventsToParts` ahora acumula `thinking_delta.content` en buffer; emitía part con `content: ''`.
-- **StreamingRepository interfaz**: `stream()` ahora acepta `model?: string`.
-
-### Fixed
-
-- **tool-call ordering**: `tool_calls_list` construido antes de `assistant_msg` (estaba referenciado sin definir). `assistant_msg` ahora se construye antes del `if not tool_calls_buf` para ambos paths (con/sin tools).
-- **reasoning_content multi-turn**: `getattr(delta, "reasoning_content")` capturado del stream y pasado en `assistant_msg["reasoning_content"]` para compatibilidad con DeepSeek V4 (lanza 400 si no se devuelve en el siguiente turno).
-- **fs sandbox prefix-match**: `is_relative_to()` en lugar de `startswith()` para evitar bypass con `/repo-evil` cuando root es `/repo`.
-- **fs relative paths**: `_resolve_path()` une paths relativos contra `settings.resolved_repo_root` en lugar de CWD del backend.
-- **canvas PUT/POST body**: `UpdateBody`/`CreateBody` Pydantic models en lugar de query params para alinear con `DocumentRepository.ts`.
-- **fs_search exclusions**: skip dirs en `{".venv","node_modules",".git","dist","__pycache__",...}`, cap archivo 500KB, cap resultados 100.
-- **memory_write re-validation**: re-check sandbox después de appendear `.md` y reasignar filepath.
-
-### Added
-
-- **`OPENAI_BASE_URL`** en `Settings` → `AsyncOpenAI(base_url=...)` para apuntar a cualquier endpoint OpenAI-compatible (opencode gateway, OpenRouter, Ollama, vLLM). Template en `.env.example` comentado.
-
-### Changed
-
-- **503 real sin API key**: `POST /api/chat/stream` lanza `HTTPException(503)` en lugar de devolver SSE con error event.
-
-- **Agente IA real (OpenAI)**: Integración completa con OpenAI vía SDK oficial. `AgentService` ejecuta loop de tool calling con streaming SSE. Backend centraliza la API key, frontend consume eventos en tiempo real.
-- **Tools del agente**: `ToolRegistry` con 11 tools: `canvas_list/read/create/edit`, `memory_list/read/write`, `fs_read/write/list/search`. Sandboxing de filesystem contra `repo_root`. Memoria persiste en archivos `.md`. Canvas comparte store con REST API.
-- **SSE streaming endpoint**: `POST /api/chat/stream` reemplaza endpoints dummy. Devuelve `EventSourceResponse` con eventos `text_delta`, `tool_call_start/end`, `done`. Sin API key → error 503 con mensaje claro.
-- **Canvas store compartido**: `services/canvas_store.py` con `CanvasStore` multi-documento. Usado tanto por REST API como por tools del agente.
-- **HttpStreamingRepository**: Nuevo repo frontend que consume SSE vía `fetch` + `ReadableStream`. Implementa `StreamingRepository` interfaz extraída del mock. Envía historial completo de mensajes.
-- **StreamingRepository interfaz**: Tipos `StreamEvent` y función `eventsToParts` extraídos a archivo propio. Interfaz `StreamingRepository` con `stream(messages)`.
-- **core/config.ts**: `API_BASE` desde `VITE_API_BASE` env var (default `http://localhost:8000`).
-- **agentStatusStore.error**: Nuevo campo `error` + `setError()` para mostrar toast cuando falta API key.
-- **backend/config.py**: `Settings` con `openai_api_key`, `openai_model`, `repo_root`, `max_tool_iterations`. Carga `.env` con `python-dotenv`.
-- **frontend/.env.example** y **backend/.env.example**: Templates de configuración.
-
-### Changed
-
-- **routers/chat.py**: Reemplazado GET/POST dummy messages por `POST /stream` con SSE.
-- **routers/canvas.py**: Refactorizado a usar `CanvasStore` compartido. Endpoints ahora multi-documento con `/{doc_id}`.
-- **chatStore**: Inyecta `HttpStreamingRepository` en lugar de mock. `sendMessage` envía historial completo (`messages[]`). Maneja eventos `error` del backend.
-- **main.py**: Startup valida `OPENAI_API_KEY`. `/health` expone `agent_ready`.
-- **frontend/package.json**: Dependencias frontend sin cambios (vitest sigue siendo gap conocido).
-
-### Removed
-
-- **MockStreamingRepository**: Eliminado. Reemplazado por `HttpStreamingRepository` + `StreamingRepository.ts` (interfaz + tipos extraídos).
-
-### Fixed
-
-- **Python 3.9 compat**: Tipos `Optional[X]` en lugar de `X | None` en todo el backend.
-
-- **Canvas multi-tab**: `canvasStore` migrado a multi-documento con `documents[]`, `activeDocumentId`, `loadDocuments`, `addDocument`, `removeDocument`. `DocumentRepository` extendido con `getAll()`, `addDocument()`, `removeDocument()`. `MarkdownCanvas` rediseñado con tab bar superior (tabs navegables, botón +New), toolbar segmented (Preview/Edit/Split), métricas movidas al panel de edición. Skeleton loading states.
-- **Memoria editable**: `memoryStore` extendido con `addFile(type, title)`, `updateFile(id, data)`, `setEditing()`. `MemoryRepository` extendido con `add()`, `update()`. `MemoryFileList` con botón "+ New memory" + modal selector de tipo. `MemoryFileContent` con edición in-place de título + contenido con auto-save 1.5s y empty state ilustrado. Key-based remount para evitar efectos de sincronización.
-- **Command Palette ampliado**: `CommandPalette` ahora incluye documentos de Canvas, archivos de memoria, y conversations como items de búsqueda. Descripciones contextuales por tipo.
-- **Skeleton component**: Nuevo `Skeleton` y `TextSkeleton` en `core/presentation/components/Skeleton.tsx` para loading states en canvas y memoria.
-- **Modelo mensaje extendido**: `Message` entity ahora soporta `parts: MessagePart[]` con tipos `text | tool_call | thinking | citation`. Factory `createMessagePart` con helpers por tipo. Tool call status enum: `running | success | error`.
-- **Streaming real**: Nuevo `MockStreamingRepository` con `AsyncGenerator<StreamEvent>` que produce eventos realistas (thinking → tool_call → text → done) con delays variables y 4 escenarios. Función `eventsToParts` convierte eventos a `MessagePart[]`.
-- **useMessageStream hook**: Hook que expone `{ parts, isStreaming, cursor }` desde `chatStore.streamingParts`. Integrado en `ChatMessage` para renderizar partes durante streaming con cursor parpadeante CSS (`animate-caret-blink`).
-- **Part renderers**: Nuevos componentes en `parts/`: `ToolCallBlock` (colapsable con icono status, input/output JSON, 3 estados), `ThinkingBlock` (colapsable con duración, borde izquierdo), `CitationChip` (chip inline numerado), `DiffView` (tabla unified diff con +/- coloreado warm).
-- **Status bar**: Nuevo componente `StatusBar` (footer fijo 28px) con secciones: dot animado de estado agente, modelo activo, archivos en contexto, git branch, shortcuts (⌘K/⌘//⌘⏎). Integrado en `SplitScreenLayout`. Store `agentStatusStore` con estados `idle | thinking | running_tool | streaming`.
-- **Toast con acciones**: `toastStore` extendido con `action?: { label, onClick }` opcional. `ToastProvider` renderiza botón de acción + botón dismiss. Auto-dismiss extendido a 4s.
-- **Design tokens**: Nuevos tokens CSS `--surface-elevated`, `--surface-sunken`, `--surface-code`, `--text-quiet`, `--text-muted`, `--text-strong`, `--ring-subtle`, `--ring-focus`, `--motion-fast/base/slow` con curva `cubic-bezier(0.2, 0, 0, 1)`. Tipografía: Inter para UI, JetBrains Mono para code via Google Fonts. Animaciones `caret-blink`, `fade-in`, `scale-in`. Soporte `prefers-reduced-motion`.
-- **Composer rico**: `ChatInput` convertido a composer con 3 zonas. Toolbar superior `ContextChips` (modelo, modo, archivos), textarea autoexpand con slash commands y @mentions, toolbar inferior (attach, voice placeholder, char counter, send). Nuevos subcomponentes en `composer/`: `SlashMenu`, `MentionMenu`, `AttachmentTray`, `ContextChips`.
-- **Slash commands Hook**: `useSlashCommands` detecta `/` al inicio/tras espacio con regex, expone items filtrados + replaceRange. 6 comandos mock: `/clear`, `/canvas`, `/memory`, `/model`, `/help`, `/diff`. Navegación teclado ↑↓ Enter Esc con index clamping seguro.
-- **@mentions**: `MentionMenu` lista documentos del CanvasStore + archivos del MemoryStore con filtrado fuzzy. Tipos visuales: canvas badge C, memory badge M.
-- **Mensajes pulidos**: `ChatMessage` con timestamp on-hover, barra acciones flotante (copy, Canvas, Regenerate, Fork) en hover. User message: bubble parchment con `ring-ring-subtle`. Assistant: monograma 20px + header nombre/timestamp, prose full-width.
-- **Code blocks mejorados**: Nuevo componente `CodeBlock` con header bar (lenguaje + botón copy con feedback visual). Wrapping SyntaxHighlighter con header.
-- **Nuevos iconos**: `PaperclipIcon`, `MicIcon`, `RefreshCwIcon`, `GitForkIcon`, `FileIcon` añadidos a `icons.tsx`.
-
-### Changed
-
-- **canvasStore**: Factoría refactorizada a multi-documento. Sección `getActiveDocument` exportada para backward-compat. `ChatInput` actualizado para consumir nuevo shape del store.
-- **memoryStore**: Factoría extendida con métodos `addFile`/`updateFile`/`setEditing`. `selectFile` ahora resetea `isEditing`. `MemoryViewer` pasa `key={selectedFileId}` a `MemoryFileContent`.
-- **Font size re-scale**: Re-escalados los tres valores `data-font-size` para que `compact` (12px) se sienta denso al estilo Claude Code, `default` (14px) sea el nuevo punto medio, y `comfortable` (16px) siga siendo holgado.
-- **SplitScreenLayout**: Paneles convertidos a tarjetas flotantes estilo Claude Code. Outer container ahora tiene `p-2 md:p-3` con fondo parchment visible como "mesa". Paneles envueltos en `rounded-2xl ring-1 ring-border-warm overflow-hidden`. Toolbar subida a `h-14`. Sidebar envuelto en tarjeta flotante. StatusBar integrado como footer fijo.
-- **index.css**: Dark theme migrado a paleta warm dedicada (charcoal `#1c1c1a`, ivory dark `#26261f`). `@theme` extendido con surface/text/ring/motion tokens. `font-family` actualizado a Inter. `font-mono` class con JetBrains Mono. Animación `animate-scale-in` añadida.
-- **MemoryViewer**: Fondo cambiado de `bg-bg` a `bg-card`.
-- **MemoryFileList**: Bordes internos suavizados de `border-border` a `border-border-cream`.
-- **MarkdownCanvas**: Header border suavizado de `border-border` a `border-border-cream`.
-- **Sidebar**: Eliminado `border-r border-border` redundante.
-- **Borders**: Varios componentes migrados de `border-border` a `border-border-cream` para consistencia.
-
-### Fixed
-
-- **Chat scroll jank**: Reemplazado `scrollIntoView({ behavior: 'smooth' })` con instant `scrollTop` + polling a 40ms durante streaming.
-- **Chat scroll handler throttled**: Envuelto handleScroll con `requestAnimationFrame`.
-- **ChatMessage markdownComponents memoized**: Movido a módulo-level constant.
-- **CSS GPU compositing**: `will-change: transform, opacity` en animaciones; `contain-content` en scroll container.
-- **useStreamingText optimizado**: Intervalo 30ms→40ms, speed 3→5 chars/frame.
-- **SplitScreenLayout transiciones**: `transition-[width]` deshabilitado durante drag; `min-w-0` para flex shrinking.
-- **chatStore streaming**: Finalización persiste vía `conversationRepository.save()` antes de `loadConversations()` para evitar desaparición del mensaje tras stream.
-</file>
-
 <file path="frontend/src/features/chat/presentation/store/chatStore.ts">
 import { create } from 'zustand';
 import type { Message, MessagePart } from '../../domain/entities/Message';
@@ -7326,11 +7240,12 @@ interface ChatState {
   streamingParts: MessagePart[];
   error: string | null;
   sendMessage: (content: string) => Promise<void>;
+  triggerGreeting: () => Promise<void>;
   completeStreaming: () => void;
   clearError: () => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   isStreaming: false,
   streamingMessageId: null,
@@ -7459,6 +7374,111 @@ export const useChatStore = create<ChatState>((set) => ({
     }
   },
 
+  triggerGreeting: async () => {
+    if (get().isStreaming) return;
+
+    set({ isLoading: true, error: null });
+    try {
+      const convStore = useConversationStore.getState();
+
+      const newId = crypto.randomUUID();
+      const newConv: Conversation = {
+        id: newId,
+        title: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      conversationRepository.save(newConv);
+      convStore.loadConversations();
+      convStore.setActiveConversation(newId);
+
+      const assistantId = crypto.randomUUID();
+      const assistantMsg: Message = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        parts: [],
+      };
+      convStore.addMessageToActive(assistantMsg);
+
+      set({
+        isLoading: false,
+        isStreaming: true,
+        streamingMessageId: assistantId,
+        streamingParts: [],
+      });
+
+      const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
+      const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
+
+      const stream = httpStreamingRepository.stream([], selectedModel, newId);
+      for await (const event of stream) {
+        events.push(event);
+
+        switch (event.type) {
+          case 'thinking_start':
+            useAgentStatusStore.getState().setStatus('thinking');
+            break;
+          case 'tool_call_start':
+            useAgentStatusStore.getState().setStatus('running_tool');
+            useAgentStatusStore.getState().setActiveTool(event.tool);
+            break;
+          case 'tool_call_end':
+            useAgentStatusStore.getState().setActiveTool(null);
+            break;
+          case 'text_delta':
+            useAgentStatusStore.getState().setStatus('streaming');
+            break;
+          case 'error':
+            useAgentStatusStore.getState().setError(event.content);
+            break;
+        }
+
+        const currentParts = eventsToParts(events);
+        set({ streamingParts: currentParts });
+      }
+
+      const finalParts = eventsToParts(events);
+      const fullText = finalParts
+        .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.content)
+        .join('');
+
+      const updatedMessage: Message = {
+        ...assistantMsg,
+        content: fullText,
+        parts: finalParts,
+      };
+
+      const finalConvState = useConversationStore.getState();
+      const convs = finalConvState.conversations;
+      const convIdx = convs.findIndex((c) => c.id === newId);
+      if (convIdx >= 0) {
+        const currentConv = convs[convIdx];
+        const updatedConv: Conversation = {
+          ...currentConv,
+          messages: currentConv.messages.map((m) => (m.id === assistantId ? updatedMessage : m)),
+          updatedAt: new Date(),
+        };
+        conversationRepository.save(updatedConv);
+        finalConvState.loadConversations();
+      }
+
+      set({
+        isStreaming: false,
+        streamingMessageId: null,
+        streamingParts: [],
+      });
+
+      useAgentStatusStore.getState().setStatus('idle');
+    } catch {
+      set({ error: 'Failed to trigger greeting', isLoading: false, isStreaming: false });
+      useAgentStatusStore.getState().setStatus('idle');
+    }
+  },
+
   completeStreaming: () =>
     set({
       isStreaming: false,
@@ -7468,6 +7488,124 @@ export const useChatStore = create<ChatState>((set) => ({
 
   clearError: () => set({ error: null }),
 }));
+</file>
+
+<file path="CHANGELOG.md">
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- **Saludo proactivo**: Nuevo sistema de bienvenida automática. El backend (`AgentService.stream()`) inyecta un "Prompt de Activación" cuando `messages` está vacío, aprovechando el contexto de usuario ya construido (`build_user_context_block`). El frontend orquesta el saludo vía `triggerGreeting()` en `chatStore` — crea una conversación, envía `messages: []` al backend, y gestiona la respuesta como primer mensaje. `ChatPanel` dispara el saludo al detectar que no hay conversaciones existentes ni activas, ocultando la `WelcomeScreen` en cuanto el stream comienza.
+
+- **User Context System**: Implementado sistema de memoria auto-generada en `.kraid/`. El backend inyecta `PREFERENCES.md` y metadata de memorias en el system prompt (con caché TTLCache de 30 minutos). Frontend envía `session_id` en peticiones de stream para invalidación. Nuevas tools `user_memory_save` y `user_memory_delete` para guardar contexto (profile, feedback, projects, references) proactivamente.
+
+- **Model picker**: Dropdown en composer con lista dinámica desde gateway OpenAI-compatible vía `GET /api/chat/models`. `ModelPicker` con keyboard-nav (ArrowDown/Up/Enter/Escape), estado vacío "No models" y checkmark en modelo activo. `settingsStore` con persistencia en `localStorage` (`kraid:selected-model`). Caché de modelos en backend 60s.
+- **Thinking streaming real**: Backend emite `thinking_start/delta/end` durante fase de reasoning. Frontend acumula contenido en vivo en `eventsToParts`. `ThinkingBlock` auto-expandido durante streaming, auto-colapsa al terminar con duración.
+- **Tool call visibility**: `ToolCallBlock` expandido por defecto mientras `running`, auto-colapsa en `success/error`. `ModelPicker` en `ContextChips` reemplaza chip estático de modelo.
+
+### Changed
+
+- **Viewport dinámico**: `SplitScreenLayout` usa `h-dvh` (dynamic viewport height) en vez de `h-screen`. Evita que toolbars móviles recorten la interfaz inferior al recalcular altura real utilizable.
+- **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
+- **StatusBar**: Lee modelo activo desde `settingsStore.selectedModel` con fallback a `agentStatusStore.modelName`.
+- **chatStore**: Pasa `selectedModel` al `httpStreamingRepository.stream()`.
+- **HttpStreamingRepository**: `stream()` acepta `model` opcional. Nuevo método `listModels()`.
+- **ContextChips**: Eliminada prop `modelName`, renderiza `<ModelPicker />`.
+- **ChatInput**: Eliminado prop `modelName` del callsite de `ContextChips`.
+- **App.tsx**: `useEffect` montaje dispara `loadModels()`.
+
+### Fixed
+
+- **Thinking content vacío**: `eventsToParts` ahora acumula `thinking_delta.content` en buffer; emitía part con `content: ''`.
+- **StreamingRepository interfaz**: `stream()` ahora acepta `model?: string`.
+
+### Fixed
+
+- **tool-call ordering**: `tool_calls_list` construido antes de `assistant_msg` (estaba referenciado sin definir). `assistant_msg` ahora se construye antes del `if not tool_calls_buf` para ambos paths (con/sin tools).
+- **reasoning_content multi-turn**: `getattr(delta, "reasoning_content")` capturado del stream y pasado en `assistant_msg["reasoning_content"]` para compatibilidad con DeepSeek V4 (lanza 400 si no se devuelve en el siguiente turno).
+- **fs sandbox prefix-match**: `is_relative_to()` en lugar de `startswith()` para evitar bypass con `/repo-evil` cuando root es `/repo`.
+- **fs relative paths**: `_resolve_path()` une paths relativos contra `settings.resolved_repo_root` en lugar de CWD del backend.
+- **canvas PUT/POST body**: `UpdateBody`/`CreateBody` Pydantic models en lugar de query params para alinear con `DocumentRepository.ts`.
+- **fs_search exclusions**: skip dirs en `{".venv","node_modules",".git","dist","__pycache__",...}`, cap archivo 500KB, cap resultados 100.
+- **memory_write re-validation**: re-check sandbox después de appendear `.md` y reasignar filepath.
+
+### Added
+
+- **`OPENAI_BASE_URL`** en `Settings` → `AsyncOpenAI(base_url=...)` para apuntar a cualquier endpoint OpenAI-compatible (opencode gateway, OpenRouter, Ollama, vLLM). Template en `.env.example` comentado.
+
+### Changed
+
+- **503 real sin API key**: `POST /api/chat/stream` lanza `HTTPException(503)` en lugar de devolver SSE con error event.
+
+- **Agente IA real (OpenAI)**: Integración completa con OpenAI vía SDK oficial. `AgentService` ejecuta loop de tool calling con streaming SSE. Backend centraliza la API key, frontend consume eventos en tiempo real.
+- **Tools del agente**: `ToolRegistry` con 11 tools: `canvas_list/read/create/edit`, `memory_list/read/write`, `fs_read/write/list/search`. Sandboxing de filesystem contra `repo_root`. Memoria persiste en archivos `.md`. Canvas comparte store con REST API.
+- **SSE streaming endpoint**: `POST /api/chat/stream` reemplaza endpoints dummy. Devuelve `EventSourceResponse` con eventos `text_delta`, `tool_call_start/end`, `done`. Sin API key → error 503 con mensaje claro.
+- **Canvas store compartido**: `services/canvas_store.py` con `CanvasStore` multi-documento. Usado tanto por REST API como por tools del agente.
+- **HttpStreamingRepository**: Nuevo repo frontend que consume SSE vía `fetch` + `ReadableStream`. Implementa `StreamingRepository` interfaz extraída del mock. Envía historial completo de mensajes.
+- **StreamingRepository interfaz**: Tipos `StreamEvent` y función `eventsToParts` extraídos a archivo propio. Interfaz `StreamingRepository` con `stream(messages)`.
+- **core/config.ts**: `API_BASE` desde `VITE_API_BASE` env var (default `http://localhost:8000`).
+- **agentStatusStore.error**: Nuevo campo `error` + `setError()` para mostrar toast cuando falta API key.
+- **backend/config.py**: `Settings` con `openai_api_key`, `openai_model`, `repo_root`, `max_tool_iterations`. Carga `.env` con `python-dotenv`.
+- **frontend/.env.example** y **backend/.env.example**: Templates de configuración.
+
+### Changed
+
+- **routers/chat.py**: Reemplazado GET/POST dummy messages por `POST /stream` con SSE.
+- **routers/canvas.py**: Refactorizado a usar `CanvasStore` compartido. Endpoints ahora multi-documento con `/{doc_id}`.
+- **chatStore**: Inyecta `HttpStreamingRepository` en lugar de mock. `sendMessage` envía historial completo (`messages[]`). Maneja eventos `error` del backend.
+- **main.py**: Startup valida `OPENAI_API_KEY`. `/health` expone `agent_ready`.
+- **frontend/package.json**: Dependencias frontend sin cambios (vitest sigue siendo gap conocido).
+
+### Removed
+
+- **MockStreamingRepository**: Eliminado. Reemplazado por `HttpStreamingRepository` + `StreamingRepository.ts` (interfaz + tipos extraídos).
+
+### Fixed
+
+- **Python 3.9 compat**: Tipos `Optional[X]` en lugar de `X | None` en todo el backend.
+
+- **Canvas multi-tab**: `canvasStore` migrado a multi-documento con `documents[]`, `activeDocumentId`, `loadDocuments`, `addDocument`, `removeDocument`. `DocumentRepository` extendido con `getAll()`, `addDocument()`, `removeDocument()`. `MarkdownCanvas` rediseñado con tab bar superior (tabs navegables, botón +New), toolbar segmented (Preview/Edit/Split), métricas movidas al panel de edición. Skeleton loading states.
+- **Memoria editable**: `memoryStore` extendido con `addFile(type, title)`, `updateFile(id, data)`, `setEditing()`. `MemoryRepository` extendido con `add()`, `update()`. `MemoryFileList` con botón "+ New memory" + modal selector de tipo. `MemoryFileContent` con edición in-place de título + contenido con auto-save 1.5s y empty state ilustrado. Key-based remount para evitar efectos de sincronización.
+- **Command Palette ampliado**: `CommandPalette` ahora incluye documentos de Canvas, archivos de memoria, y conversations como items de búsqueda. Descripciones contextuales por tipo.
+- **Skeleton component**: Nuevo `Skeleton` y `TextSkeleton` en `core/presentation/components/Skeleton.tsx` para loading states en canvas y memoria.
+- **Modelo mensaje extendido**: `Message` entity ahora soporta `parts: MessagePart[]` con tipos `text | tool_call | thinking | citation`. Factory `createMessagePart` con helpers por tipo. Tool call status enum: `running | success | error`.
+- **Streaming real**: Nuevo `MockStreamingRepository` con `AsyncGenerator<StreamEvent>` que produce eventos realistas (thinking → tool_call → text → done) con delays variables y 4 escenarios. Función `eventsToParts` convierte eventos a `MessagePart[]`.
+- **useMessageStream hook**: Hook que expone `{ parts, isStreaming, cursor }` desde `chatStore.streamingParts`. Integrado en `ChatMessage` para renderizar partes durante streaming con cursor parpadeante CSS (`animate-caret-blink`).
+- **Part renderers**: Nuevos componentes en `parts/`: `ToolCallBlock` (colapsable con icono status, input/output JSON, 3 estados), `ThinkingBlock` (colapsable con duración, borde izquierdo), `CitationChip` (chip inline numerado), `DiffView` (tabla unified diff con +/- coloreado warm).
+- **Status bar**: Nuevo componente `StatusBar` (footer fijo 28px) con secciones: dot animado de estado agente, modelo activo, archivos en contexto, git branch, shortcuts (⌘K/⌘//⌘⏎). Integrado en `SplitScreenLayout`. Store `agentStatusStore` con estados `idle | thinking | running_tool | streaming`.
+- **Toast con acciones**: `toastStore` extendido con `action?: { label, onClick }` opcional. `ToastProvider` renderiza botón de acción + botón dismiss. Auto-dismiss extendido a 4s.
+- **Design tokens**: Nuevos tokens CSS `--surface-elevated`, `--surface-sunken`, `--surface-code`, `--text-quiet`, `--text-muted`, `--text-strong`, `--ring-subtle`, `--ring-focus`, `--motion-fast/base/slow` con curva `cubic-bezier(0.2, 0, 0, 1)`. Tipografía: Inter para UI, JetBrains Mono para code via Google Fonts. Animaciones `caret-blink`, `fade-in`, `scale-in`. Soporte `prefers-reduced-motion`.
+- **Composer rico**: `ChatInput` convertido a composer con 3 zonas. Toolbar superior `ContextChips` (modelo, modo, archivos), textarea autoexpand con slash commands y @mentions, toolbar inferior (attach, voice placeholder, char counter, send). Nuevos subcomponentes en `composer/`: `SlashMenu`, `MentionMenu`, `AttachmentTray`, `ContextChips`.
+- **Slash commands Hook**: `useSlashCommands` detecta `/` al inicio/tras espacio con regex, expone items filtrados + replaceRange. 6 comandos mock: `/clear`, `/canvas`, `/memory`, `/model`, `/help`, `/diff`. Navegación teclado ↑↓ Enter Esc con index clamping seguro.
+- **@mentions**: `MentionMenu` lista documentos del CanvasStore + archivos del MemoryStore con filtrado fuzzy. Tipos visuales: canvas badge C, memory badge M.
+- **Mensajes pulidos**: `ChatMessage` con timestamp on-hover, barra acciones flotante (copy, Canvas, Regenerate, Fork) en hover. User message: bubble parchment con `ring-ring-subtle`. Assistant: monograma 20px + header nombre/timestamp, prose full-width.
+- **Code blocks mejorados**: Nuevo componente `CodeBlock` con header bar (lenguaje + botón copy con feedback visual). Wrapping SyntaxHighlighter con header.
+- **Nuevos iconos**: `PaperclipIcon`, `MicIcon`, `RefreshCwIcon`, `GitForkIcon`, `FileIcon` añadidos a `icons.tsx`.
+
+### Changed
+
+- **canvasStore**: Factoría refactorizada a multi-documento. Sección `getActiveDocument` exportada para backward-compat. `ChatInput` actualizado para consumir nuevo shape del store.
+- **memoryStore**: Factoría extendida con métodos `addFile`/`updateFile`/`setEditing`. `selectFile` ahora resetea `isEditing`. `MemoryViewer` pasa `key={selectedFileId}` a `MemoryFileContent`.
+- **Font size re-scale**: Re-escalados los tres valores `data-font-size` para que `compact` (12px) se sienta denso al estilo Claude Code, `default` (14px) sea el nuevo punto medio, y `comfortable` (16px) siga siendo holgado.
+- **SplitScreenLayout**: Paneles convertidos a tarjetas flotantes estilo Claude Code. Outer container ahora tiene `p-2 md:p-3` con fondo parchment visible como "mesa". Paneles envueltos en `rounded-2xl ring-1 ring-border-warm overflow-hidden`. Toolbar subida a `h-14`. Sidebar envuelto en tarjeta flotante. StatusBar integrado como footer fijo.
+- **index.css**: Dark theme migrado a paleta warm dedicada (charcoal `#1c1c1a`, ivory dark `#26261f`). `@theme` extendido con surface/text/ring/motion tokens. `font-family` actualizado a Inter. `font-mono` class con JetBrains Mono. Animación `animate-scale-in` añadida.
+- **MemoryViewer**: Fondo cambiado de `bg-bg` a `bg-card`.
+- **MemoryFileList**: Bordes internos suavizados de `border-border` a `border-border-cream`.
+- **MarkdownCanvas**: Header border suavizado de `border-border` a `border-border-cream`.
+- **Sidebar**: Eliminado `border-r border-border` redundante.
+- **Borders**: Varios componentes migrados de `border-border` a `border-border-cream` para consistencia.
+
+### Fixed
+
+- **Chat scroll jank**: Reemplazado `scrollIntoView({ behavior: 'smooth' })` con instant `scrollTop` + polling a 40ms durante streaming.
+- **Chat scroll handler throttled**: Envuelto handleScroll con `requestAnimationFrame`.
+- **ChatMessage markdownComponents memoized**: Movido a módulo-level constant.
+- **CSS GPU compositing**: `will-change: transform, opacity` en animaciones; `contain-content` en scroll container.
+- **useStreamingText optimizado**: Intervalo 30ms→40ms, speed 3→5 chars/frame.
+- **SplitScreenLayout transiciones**: `transition-[width]` deshabilitado durante drag; `min-w-0` para flex shrinking.
+- **chatStore streaming**: Finalización persiste vía `conversationRepository.save()` antes de `loadConversations()` para evitar desaparición del mensaje tras stream.
 </file>
 
 </files>
