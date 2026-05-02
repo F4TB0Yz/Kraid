@@ -7,6 +7,7 @@ import { ContextChips } from './composer/ContextChips';
 import { AttachmentTray, type Attachment } from './composer/AttachmentTray';
 import { useCanvasStore } from '../../../canvas/presentation/store/canvasStore';
 import { useMemoryStore } from '../../../memory/presentation/store/memoryStore';
+import { useWorkspacePanelStore } from '../../../../core/presentation/store/workspacePanelStore';
 
 interface ChatInputProps {
   onSend: (content: string) => Promise<void>;
@@ -22,8 +23,7 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { documents: canvasDocs, activeDocumentId } = useCanvasStore();
-  const canvasDoc = useMemo(() => canvasDocs.find((d) => d.id === activeDocumentId) ?? null, [canvasDocs, activeDocumentId]);
+  const { documents: canvasDocs } = useCanvasStore();
   const { files: memoryFiles } = useMemoryStore();
 
   const slash = useSlashCommands(value, cursorPos);
@@ -44,14 +44,14 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
 
   const mentionItems = useMemo(() => {
     const result: MentionItem[] = [];
-    if (canvasDoc) {
-      result.push({ id: `doc-${canvasDoc.id}`, label: canvasDoc.title, type: 'canvas' });
+    for (const doc of canvasDocs) {
+      result.push({ id: `doc-${doc.id}`, label: doc.title, type: 'canvas' });
     }
     for (const f of memoryFiles) {
       result.push({ id: `mem-${f.id}`, label: f.filename, type: 'memory' });
     }
     return result;
-  }, [canvasDoc, memoryFiles]);
+  }, [canvasDocs, memoryFiles]);
 
   const filteredMentionItems = useMemo(() => {
     if (!mentionState.query) return mentionItems;
@@ -99,6 +99,11 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
     (item: MentionItem) => {
       if (mentionState.active) {
         replaceText(mentionState.start, mentionState.end, item.label);
+      }
+      if (item.type === 'canvas') {
+        useWorkspacePanelStore.getState().focusTab({ kind: 'canvas', documentId: item.id.replace('doc-', '') });
+      } else {
+        useWorkspacePanelStore.getState().focusTab({ kind: 'memory', fileId: item.id.replace('mem-', '') });
       }
     },
     [replaceText, mentionState],

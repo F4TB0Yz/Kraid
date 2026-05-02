@@ -3,6 +3,7 @@ import { useConversationStore } from '../../../features/conversations/presentati
 import { useSettingsStore } from '../../../features/settings/presentation/store/settingsStore';
 import { useMemoryStore } from '../../../features/memory/presentation/store/memoryStore';
 import { useCanvasStore } from '../../../features/canvas/presentation/store/canvasStore';
+import { useWorkspacePanelStore } from '../store/workspacePanelStore';
 import { SearchIcon, CogIcon, PlusIcon, PanelRightIcon, BrainIcon } from './icons';
 
 interface PaletteItem {
@@ -68,14 +69,14 @@ export const CommandPalette = () => {
       title: doc.title,
       description: 'Canvas document',
       icon: <PanelRightIcon className="h-4 w-4" />,
-      perform: () => { setIsOpen(false); },
+      perform: () => { useWorkspacePanelStore.getState().focusTab({ kind: 'canvas', documentId: doc.id }); setIsOpen(false); },
     })),
     ...memoryFiles.map((file) => ({
       id: `mem-${file.id}`,
       title: file.title,
       description: `Memory · ${file.type}`,
       icon: <BrainIcon className="h-4 w-4" />,
-      perform: () => { setIsOpen(false); },
+      perform: () => { useWorkspacePanelStore.getState().focusTab({ kind: 'memory', fileId: file.id }); setIsOpen(false); },
     })),
   ];
 

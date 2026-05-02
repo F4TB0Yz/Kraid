@@ -5,10 +5,11 @@ export const useMemoryWatcher = () => {
   const loadFiles = useMemoryStore((state) => state.loadFiles);
 
   useEffect(() => {
+    void loadFiles();
+
     const eventSource = new EventSource('http://localhost:8000/api/memory/stream');
 
     eventSource.addEventListener('memory_changed', () => {
-      // Reload the files when any change happens
       void loadFiles();
     });
 

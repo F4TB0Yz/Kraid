@@ -1,29 +1,25 @@
 import { useState, useRef, useEffect } from 'react';
-import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
+import { MenuIcon, PanelRightIcon } from '../components/icons';
 import { Sidebar } from '../components/Sidebar';
 import { StatusBar } from '../components/StatusBar';
+import { WorkspacePanel } from '../components/WorkspacePanel';
 import { useSidebarStore } from '../store/sidebarStore';
-
-type RightPanelMode = 'canvas' | 'memory' | 'closed';
+import { useWorkspacePanelStore } from '../store/workspacePanelStore';
 
 interface SplitScreenLayoutProps {
   leftPanel: React.ReactNode;
-  rightPanel: React.ReactNode;
-  memoryPanel: React.ReactNode;
 }
 
 export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
   leftPanel,
-  rightPanel,
-  memoryPanel,
 }) => {
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
   const [leftWidth, setLeftWidth] = useState(42);
   const [isDragging, setIsDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { sidebarOpen, toggleSidebar } = useSidebarStore();
+  const { isOpen, togglePanel } = useWorkspacePanelStore();
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -34,7 +30,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
   useEffect(() => {
     if (isMobile) {
-      requestAnimationFrame(() => setRightPanelMode('closed'));
+      useWorkspacePanelStore.getState().closePanel();
     }
   }, [isMobile]);
 
@@ -66,13 +62,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
     };
   }, [isDragging]);
 
-  const isRightPanelVisible = rightPanelMode !== 'closed';
-
-  const handleCanvasToggle = () =>
-    setRightPanelMode((prev) => (prev === 'canvas' ? 'closed' : 'canvas'));
-
-  const handleMemoryToggle = () =>
-    setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
+  const isRightPanelVisible = isOpen;
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
@@ -97,7 +87,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
         <div
           ref={containerRef}
-          className="flex flex-1 gap-3 transition-all duration-300 ease-in-out ml-0"
+          className="flex flex-1 gap-3 pb-7 transition-all duration-300 ease-in-out ml-0"
         >
           <div
             style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
@@ -116,22 +106,13 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
               <div className="flex items-center gap-1">
                 <button
-                  onClick={handleCanvasToggle}
+                  onClick={togglePanel}
                   className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                    rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                    isOpen ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
                   }`}
-                  aria-label="Toggle Canvas"
+                  aria-label="Toggle Workspace"
                 >
                   <PanelRightIcon className="h-5 w-5" />
-                </button>
-                <button
-                  onClick={handleMemoryToggle}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                    rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                  }`}
-                  aria-label="Toggle Memory Viewer"
-                >
-                  <BrainIcon className="h-5 w-5" />
                 </button>
               </div>
             </div>
@@ -155,8 +136,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
               !isRightPanelVisible ? 'hidden opacity-0' : 'opacity-100'
             }`}
           >
-            {rightPanelMode === 'canvas' && rightPanel}
-            {rightPanelMode === 'memory' && memoryPanel}
+            <WorkspacePanel />
           </div>
         </div>
 

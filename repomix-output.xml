@@ -97,6 +97,7 @@ frontend/
         store/
           agentStatusStore.ts
           settingsStore.ts
+          sidebarStore.ts
           toastStore.ts
       config.ts
     features/
@@ -1687,6 +1688,58 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 }));
 </file>
 
+<file path="frontend/src/core/presentation/store/sidebarStore.ts">
+import { create } from 'zustand';
+
+interface SidebarState {
+  sidebarOpen: boolean;
+  openSidebar: () => void;
+  closeSidebar: () => void;
+  toggleSidebar: () => void;
+}
+
+const STORAGE_KEY = 'kraid:sidebar-state';
+
+const loadPersistedState = (): boolean => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const persistState = (open: boolean) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(open));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+export const useSidebarStore = create<SidebarState>((set) => ({
+  sidebarOpen: loadPersistedState(),
+
+  openSidebar: () => {
+    persistState(true);
+    set({ sidebarOpen: true });
+  },
+
+  closeSidebar: () => {
+    persistState(false);
+    set({ sidebarOpen: false });
+  },
+
+  toggleSidebar: () => {
+    set((state) => {
+      const next = !state.sidebarOpen;
+      persistState(next);
+      return { sidebarOpen: next };
+    });
+  },
+}));
+</file>
+
 <file path="frontend/src/core/config.ts">
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 </file>
@@ -2332,53 +2385,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }));
   },
 }));
-</file>
-
-<file path="frontend/src/features/memory/data/repositories/HttpMemoryRepository.ts">
-import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
-import type { MemoryRepository } from './MemoryRepository';
-
-const API_URL = 'http://localhost:8000/api/memory';
-
-export class HttpMemoryRepository implements MemoryRepository {
-  async getAll(): Promise<MemoryFile[]> {
-    const res = await fetch(API_URL);
-    if (!res.ok) throw new Error('Failed to fetch memory files');
-    const data = await res.json();
-    return data.map((d: any) => ({
-      ...d,
-      lastModified: new Date(d.lastModified)
-    }));
-  }
-
-  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to create memory file');
-    const d = await res.json();
-    return { ...d, lastModified: new Date(d.lastModified) };
-  }
-
-  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
-    // id is expected to be type-filename
-    const parts = id.split('-');
-    const type = parts[0];
-    const filename = parts.slice(1).join('-');
-    const res = await fetch(`${API_URL}/${type}/${filename}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to update memory file');
-    const d = await res.json();
-    return { ...d, lastModified: new Date(d.lastModified) };
-  }
-}
-
-export const httpMemoryRepository = new HttpMemoryRepository();
 </file>
 
 <file path="frontend/src/features/memory/domain/errors/MemoryErrors.ts">
@@ -3593,70 +3599,6 @@ export const Sidebar = ({ onClose }: SidebarProps) => {
 };
 </file>
 
-<file path="frontend/src/core/presentation/components/StatusBar.tsx">
-import { useAgentStatusStore } from '../store/agentStatusStore';
-import { useSettingsStore } from '../store/settingsStore';
-
-const STATUS_DOT: Record<string, string> = {
-  idle: 'bg-green-500',
-  thinking: 'bg-amber-500 animate-pulse',
-  running_tool: 'bg-blue-500 animate-pulse',
-  streaming: 'bg-accent animate-pulse',
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  idle: 'Ready',
-  thinking: 'Thinking',
-  running_tool: 'Running tool',
-  streaming: 'Streaming',
-};
-
-export const StatusBar = () => {
-  const { status, activeTool, modelName, contextFiles, gitBranch } = useAgentStatusStore();
-  const selectedModel = useSettingsStore((s) => s.selectedModel);
-  const displayModel = selectedModel ?? modelName;
-
-  return (
-    <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border-cream bg-card px-3 text-[11px] text-olive-gray">
-      <div className="flex items-center gap-3">
-        <span className="flex items-center gap-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
-          <span>
-            {STATUS_LABEL[status]}
-            {activeTool && status === 'running_tool' && (
-              <span className="ml-1 font-mono text-[10px]">({activeTool})</span>
-            )}
-          </span>
-        </span>
-
-        <span className="text-warm-silver">·</span>
-
-        <span>{displayModel}</span>
-
-        {contextFiles > 0 && (
-          <>
-            <span className="text-warm-silver">·</span>
-            <span>{contextFiles} files</span>
-          </>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-[10px]">{gitBranch}</span>
-        <span className="text-warm-silver">·</span>
-        <span className="hidden sm:inline">
-          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘K</kbd> palette
-          <span className="mx-1">·</span>
-          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘/</kbd> slash
-          <span className="mx-1">·</span>
-          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘⏎</kbd> send
-        </span>
-      </div>
-    </footer>
-  );
-};
-</file>
-
 <file path="frontend/src/core/presentation/store/agentStatusStore.ts">
 import { create } from 'zustand';
 
@@ -4021,6 +3963,53 @@ export function useStreamingText(
 }
 </file>
 
+<file path="frontend/src/features/memory/data/repositories/HttpMemoryRepository.ts">
+import type { MemoryFile, MemoryFileType } from '../../domain/entities/MemoryFile';
+import type { MemoryRepository } from './MemoryRepository';
+
+const API_URL = 'http://localhost:8000/api/memory';
+
+export class HttpMemoryRepository implements MemoryRepository {
+  async getAll(): Promise<MemoryFile[]> {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('Failed to fetch memory files');
+    const data = await res.json();
+    return data.map((d: { lastModified: string | Date; title: string; filename: string; type: string }) => ({
+      ...d,
+      lastModified: new Date(d.lastModified)
+    }));
+  }
+
+  async add(data: { title: string; filename: string; type: MemoryFileType; content: string }): Promise<MemoryFile> {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create memory file');
+    const d = await res.json();
+    return { ...d, lastModified: new Date(d.lastModified) };
+  }
+
+  async update(id: string, data: { title?: string; filename?: string; type?: MemoryFileType; content?: string }): Promise<MemoryFile> {
+    // id is expected to be type-filename
+    const parts = id.split('-');
+    const type = parts[0];
+    const filename = parts.slice(1).join('-');
+    const res = await fetch(`${API_URL}/${type}/${filename}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to update memory file');
+    const d = await res.json();
+    return { ...d, lastModified: new Date(d.lastModified) };
+  }
+}
+
+export const httpMemoryRepository = new HttpMemoryRepository();
+</file>
+
 <file path="frontend/src/features/memory/domain/entities/MemoryFile.ts">
 export type MemoryFileType = 'profile' | 'projects' | 'feedback' | 'references';
 
@@ -4050,176 +4039,6 @@ export const createMemoryFile = (
   lastModified,
   wordCount: content.trim().split(/\s+/).filter((w) => w.length > 0).length,
 });
-</file>
-
-<file path="frontend/src/features/memory/presentation/components/MemoryFileContent.tsx">
-import { useState, useRef, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useMemoryStore } from '../store/memoryStore';
-import { EditIcon } from '../../../../core/presentation/components/icons';
-import type { Components } from 'react-markdown';
-import type { MemoryFileType } from '../../domain/entities/MemoryFile';
-
-const typeLabels: Record<MemoryFileType, string> = {
-  user: 'User',
-  project: 'Project',
-  feedback: 'Feedback',
-  reference: 'Reference',
-};
-
-const typeBadgeStyles: Record<MemoryFileType, string> = {
-  user: 'bg-blue-400/10 text-blue-600',
-  project: 'bg-accent/10 text-accent',
-  feedback: 'bg-amber-400/10 text-amber-700',
-  reference: 'bg-emerald-500/10 text-emerald-700',
-};
-
-const formatDate = (date: Date): string =>
-  date.toLocaleDateString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-const markdownComponents: Components = {
-  code({ className, children, ...props }) {
-    const match = /language-(\w+)/.exec(className || '');
-    const isInline = !match && !String(children).includes('\n');
-    return !isInline ? (
-      <div className="my-4 overflow-hidden rounded-lg border border-border">
-        <SyntaxHighlighter
-          style={materialLight}
-          language={match?.[1] || 'text'}
-          PreTag="div"
-          customStyle={{ margin: 0, background: 'transparent' }}
-          {...props}
-        >
-          {String(children).replace(/\n$/, '')}
-        </SyntaxHighlighter>
-      </div>
-    ) : (
-      <code className={className} {...props}>{children}</code>
-    );
-  },
-};
-
-export const MemoryFileContent = () => {
-  const { files, selectedFileId, isEditing, updateFile, setEditing } = useMemoryStore();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
-
-  const [localContent, setLocalContent] = useState(selectedFile?.content ?? '');
-  const [localTitle, setLocalTitle] = useState(selectedFile?.title ?? '');
-
-  const handleSave = useCallback(async (content: string, title: string) => {
-    if (!selectedFileId || !selectedFile) return;
-    await updateFile(selectedFileId, {
-      content,
-      title: title !== selectedFile.title ? title : undefined,
-    });
-  }, [selectedFileId, selectedFile, updateFile]);
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setLocalContent(e.target.value);
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      void handleSave(e.target.value, localTitle);
-    }, 1500);
-  };
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalTitle(e.target.value);
-  };
-
-  const toggleEdit = () => {
-    const next = !isEditing;
-    setEditing(next);
-    if (next) {
-      setTimeout(() => textareaRef.current?.focus(), 50);
-    } else {
-      void handleSave(localContent, localTitle);
-    }
-  };
-
-  if (!selectedFile) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center bg-bg">
-        <div className="text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-warm-sand">
-            <span className="text-lg text-olive-gray">📝</span>
-          </div>
-          <p className="text-sm text-olive-gray">Select a file to preview</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full flex-1 flex-col bg-bg text-text">
-      <div className="flex items-center justify-between border-b border-border-cream px-6 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {isEditing ? (
-            <input
-              type="text"
-              value={localTitle}
-              onChange={handleTitleChange}
-              className="rounded border border-border-warm bg-bg px-2 py-1 text-sm font-medium text-text outline-none focus:ring-2 focus:ring-accent"
-            />
-          ) : (
-            <h2 className="truncate font-serif text-base font-medium">{selectedFile.title}</h2>
-          )}
-          <span className={`inline-block shrink-0 rounded px-2 py-0.5 text-xs font-medium ${typeBadgeStyles[selectedFile.type]}`}>
-            {typeLabels[selectedFile.type]}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
-          <button
-            onClick={toggleEdit}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              isEditing
-                ? 'bg-accent text-ivory'
-                : 'text-charcoal-warm hover:bg-warm-sand'
-            }`}
-          >
-            <EditIcon className="h-3.5 w-3.5" />
-            {isEditing ? 'Done' : 'Edit'}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {isEditing ? (
-          <textarea
-            ref={textareaRef}
-            value={localContent}
-            onChange={handleContentChange}
-            placeholder="Write your content here…"
-            className="h-full w-full resize-none bg-transparent px-10 py-8 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-olive-gray"
-          />
-        ) : (
-          <div className="prose prose-sm max-w-none px-10 py-8 pb-32">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {localContent}
-            </ReactMarkdown>
-          </div>
-        )}
-      </div>
-
-      <div className="flex shrink-0 items-center justify-between border-t border-border-cream bg-card px-6 py-2 text-xs text-olive-gray">
-        <span className="font-mono">{selectedFile.filename}</span>
-        <span>{selectedFile.wordCount} words</span>
-      </div>
-    </div>
-  );
-};
 </file>
 
 <file path="frontend/index.html">
@@ -4474,6 +4293,70 @@ export const FileIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
     <polyline points="13 2 13 9 20 9" />
   </svg>
 );
+</file>
+
+<file path="frontend/src/core/presentation/components/StatusBar.tsx">
+import { useAgentStatusStore } from '../store/agentStatusStore';
+import { useSettingsStore } from '../store/settingsStore';
+
+const STATUS_DOT: Record<string, string> = {
+  idle: 'bg-green-500',
+  thinking: 'bg-amber-500 animate-pulse',
+  running_tool: 'bg-blue-500 animate-pulse',
+  streaming: 'bg-accent animate-pulse',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  idle: 'Ready',
+  thinking: 'Thinking',
+  running_tool: 'Running tool',
+  streaming: 'Streaming',
+};
+
+export const StatusBar = () => {
+  const { status, activeTool, modelName, contextFiles, gitBranch } = useAgentStatusStore();
+  const selectedModel = useSettingsStore((s) => s.selectedModel);
+  const displayModel = selectedModel ?? modelName;
+
+  return (
+    <footer className="absolute bottom-2 right-4 z-20 flex items-center gap-3 bg-transparent px-3 text-[11px] text-olive-gray">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-1.5">
+          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
+          <span>
+            {STATUS_LABEL[status]}
+            {activeTool && status === 'running_tool' && (
+              <span className="ml-1 font-mono text-[10px]">({activeTool})</span>
+            )}
+          </span>
+        </span>
+
+        <span className="text-warm-silver">·</span>
+
+        <span>{displayModel}</span>
+
+        {contextFiles > 0 && (
+          <>
+            <span className="text-warm-silver">·</span>
+            <span>{contextFiles} files</span>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <span className="font-mono text-[10px]">{gitBranch}</span>
+        <span className="text-warm-silver">·</span>
+        <span className="hidden sm:inline">
+          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘K</kbd> palette
+          <span className="mx-1">·</span>
+          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘/</kbd> slash
+          <span className="mx-1">·</span>
+          <kbd className="rounded border border-border-cream bg-bg px-1 font-mono">⌘⏎</kbd> send
+        </span>
+      </div>
+    </footer>
+  );
+};
 </file>
 
 <file path="frontend/src/features/canvas/data/repositories/DocumentRepository.ts">
@@ -5126,196 +5009,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
 };
 </file>
 
-<file path="frontend/src/features/chat/presentation/components/ChatPanel.tsx">
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { useChatStore } from '../store/chatStore';
-import { useSettingsStore } from '../../../settings/presentation/store/settingsStore';
-import { useConversationStore } from '../../../conversations/presentation/store/conversationStore';
-import { ChatMessage } from './ChatMessage';
-import { ChatInput } from './ChatInput';
-import { TypingIndicator } from './TypingIndicator';
-import { CogIcon, KraidIcon, ArrowDownIcon } from '../../../../core/presentation/components/icons';
-import { Avatar } from '../../../../core/presentation/components/Avatar';
-
-const SUGGESTIONS = [
-  "Explain how this code works",
-  "Help me think through a problem",
-  "Summarize the key points",
-];
-
-const getGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-};
-
-const WelcomeScreen = ({ onSuggest, agentName }: { onSuggest: (text: string) => void, agentName: string }) => (
-  <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center animate-message-slide-up">
-    <div className="flex flex-col items-center gap-4">
-      <Avatar role="assistant" size="lg" />
-      <div>
-        <h2 className="font-serif text-xl font-medium text-text">{getGreeting()}</h2>
-        <p className="mt-1 text-sm text-warm-silver">How can {agentName} help you today?</p>
-      </div>
-    </div>
-    <div className="flex flex-wrap justify-center gap-2 max-w-md mt-2">
-      {SUGGESTIONS.map((suggestion) => (
-        <button
-          key={suggestion}
-          onClick={() => onSuggest(suggestion)}
-          className="rounded-full border border-border-warm bg-card px-4 py-2 text-sm text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
-        >
-          {suggestion}
-        </button>
-      ))}
-    </div>
-  </div>
-);
-
-export const ChatPanel = () => {
-  const { isLoading, isStreaming, error, sendMessage, triggerGreeting, clearError } = useChatStore();
-  const { activeConversationId, conversations, loadConversations } = useConversationStore();
-  const { preferences, openSettings } = useSettingsStore();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [showScrollFab, setShowScrollFab] = useState(false);
-  const rafRef = useRef<number>(0);
-  const greetingTriggeredRef = useRef(false);
-  const prevActiveIdRef = useRef<string | null>(null);
-
-  const activeConversation = conversations.find(c => c.id === activeConversationId);
-  const messages = useMemo(() => activeConversation?.messages || [], [activeConversation?.messages]);
-
-  useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
-
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el || showScrollFab) return;
-
-    if (isStreaming) {
-      el.scrollTop = el.scrollHeight;
-      const interval = setInterval(() => {
-        el.scrollTop = el.scrollHeight;
-      }, 40);
-      return () => clearInterval(interval);
-    }
-
-    scrollToBottom();
-  }, [messages, isLoading, isStreaming, showScrollFab, scrollToBottom]);
-
-  useEffect(() => {
-    const prevId = prevActiveIdRef.current;
-    prevActiveIdRef.current = activeConversationId;
-
-    if (activeConversationId === null && prevId !== null) {
-      greetingTriggeredRef.current = false;
-    }
-
-    const isNewChatClick = activeConversationId === null && prevId !== null;
-    const isFirstTime = prevId === null && conversations.length === 0;
-
-    if (!greetingTriggeredRef.current && (isNewChatClick || isFirstTime) && !isStreaming && !isLoading) {
-      greetingTriggeredRef.current = true;
-      triggerGreeting();
-    }
-  }, [activeConversationId, isStreaming, isLoading, conversations.length, triggerGreeting]);
-
-  const handleScroll = useCallback(() => {
-    if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = 0;
-      if (!scrollContainerRef.current) return;
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-      const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
-      setShowScrollFab(isScrolledUp);
-    });
-  }, []);
-
-  const statusColor = error ? 'bg-error' : isLoading ? 'bg-amber-500' : 'bg-green-500';
-
-  return (
-    <div className="flex h-full flex-col bg-card relative">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border-cream px-4 py-3 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="relative">
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-ivory">
-              <KraidIcon className="h-3 w-3" />
-            </div>
-            <div className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-card ${statusColor}`} />
-          </div>
-          <h1 className="font-serif text-base font-medium text-text">{preferences.agentName}</h1>
-        </div>
-        <button
-          onClick={openSettings}
-          className="rounded-full p-1.5 text-warm-silver transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
-          aria-label="Open settings"
-        >
-          <CogIcon className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Error banner */}
-      {error && (
-        <div className="flex items-center justify-between border-b border-border-cream bg-error/10 px-4 py-2 shrink-0">
-          <p className="text-xs text-error">{error}</p>
-          <button
-            onClick={clearError}
-            className="text-xs text-error underline-offset-2 hover:underline"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Messages area */}
-      <div 
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex flex-1 flex-col overflow-y-auto px-4 py-5 contain-content"
-      >
-        {messages.length === 0 && !isLoading ? (
-          <WelcomeScreen onSuggest={sendMessage} agentName={preferences.agentName} />
-        ) : (
-          <div className="flex flex-col gap-6">
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
-            {isLoading && <TypingIndicator />}
-            <div ref={bottomRef} />
-          </div>
-        )}
-      </div>
-
-      {/* Scroll to bottom FAB */}
-      {showScrollFab && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 animate-message-slide-up" style={{ animationDuration: '0.2s' }}>
-          <button
-            onClick={scrollToBottom}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-bg shadow-md ring-1 ring-border text-charcoal-warm transition-colors hover:text-accent hover:bg-warm-sand"
-            aria-label="Scroll to bottom"
-          >
-            <ArrowDownIcon className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="shrink-0">
-        <ChatInput onSend={sendMessage} isLoading={isLoading} />
-      </div>
-    </div>
-  );
-};
-</file>
-
 <file path="frontend/src/features/memory/data/repositories/MemoryRepository.ts">
 import type { MemoryFile } from '../../domain/entities/MemoryFile';
 import { createMemoryFile } from '../../domain/entities/MemoryFile';
@@ -5400,28 +5093,6 @@ export class MockMemoryRepository implements MemoryRepository {
 }
 
 export const mockMemoryRepository = new MockMemoryRepository();
-</file>
-
-<file path="frontend/src/features/memory/presentation/components/MemoryViewer.tsx">
-import { useEffect } from 'react';
-import { useMemoryStore } from '../store/memoryStore';
-import { MemoryFileList } from './MemoryFileList';
-import { MemoryFileContent } from './MemoryFileContent';
-
-export const MemoryViewer = () => {
-  const { loadFiles, selectedFileId } = useMemoryStore();
-
-  useEffect(() => {
-    void loadFiles();
-  }, [loadFiles]);
-
-  return (
-    <div className="flex h-full w-full bg-card">
-      <MemoryFileList />
-      <MemoryFileContent key={selectedFileId ?? 'none'} />
-    </div>
-  );
-};
 </file>
 
 <file path="frontend/src/features/memory/presentation/store/memoryStore.ts">
@@ -5665,7 +5336,7 @@ No tests configurados aún. Estructura: `backend/tests/`
 
 15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
 
-16. **Tener listo el commit** para subir y pedir confirmacion.
+16. **Preguntar si se quiere subir commit**.
 
 ## Gaps Conocidos
 
@@ -5688,242 +5359,6 @@ Para decisiones de diseño (colores, tipografía, espaciado, sombras), consultar
 | Card | Ivory | `#faf9f5` |
 | Text | Near Black | `#141413` |
 | Border | Border Cream | `#f0eee6` |
-</file>
-
-<file path="backend/app/agent/service.py">
-import json
-import time as time_module
-import datetime
-from typing import AsyncIterator, Optional
-
-from openai import AsyncOpenAI
-
-from app.config import settings
-from app.agent.tools import tool_registry
-from app.agent.context.user_context import build_user_context_block
-from app.agent.context.org_context import build_org_context_snapshot
-from app.agent.prompts import DOMAIN_AGENT_PROMPT
-
-EVENT_TOOL_CALL_START = "tool_call_start"
-EVENT_TOOL_CALL_END = "tool_call_end"
-EVENT_TEXT_DELTA = "text_delta"
-EVENT_THINKING_START = "thinking_start"
-EVENT_THINKING_DELTA = "thinking_delta"
-EVENT_THINKING_END = "thinking_end"
-EVENT_DONE = "done"
-
-BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
-- canvas: crear, leer, editar y listar documentos del canvas
-- memory: leer, escribir y listar archivos markdown en .kraid/
-- fs: leer, escribir, listar y buscar archivos en el repo
-- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
-
-AUTO_MEMORY_INSTRUCTIONS = """
-Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
-Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
-
-Reglas para guardar memoria:
-- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
-- Usa el 'type' correcto:
-  - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
-  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
-  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
-  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
-- Qué NO guardar:
-  - Tokens de API o secretos.
-  - Estados temporales (ej: "estoy reiniciando el server").
-  - Conversaciones enteras o código fuente largo.
-"""
-
-class AgentService:
-    def __init__(self):
-        self._client: Optional[AsyncOpenAI] = None
-        self._models_cache: tuple[list[dict], float] = ([], 0.0)
-        if settings.openai_api_key:
-            self._client = AsyncOpenAI(
-                api_key=settings.openai_api_key,
-                base_url=settings.openai_base_url or None,
-            )
-
-    @property
-    def is_ready(self) -> bool:
-        return self._client is not None
-
-    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
-        if not self._client:
-            yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
-            return
-
-        user_context_block = build_user_context_block(session_id)
-        today = datetime.date.today().isoformat()
-        org_snapshot = build_org_context_snapshot()
-        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
-
-        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
-
-        system_msg = {
-            "role": "system",
-            "content": system_content,
-        }
-
-        if not messages:
-            activation_prompt = {
-                "role": "user",
-                "content": "El usuario ha iniciado una nueva sesión. Salúdalo de forma cálida y proactiva basándose en su perfil y proyectos actuales. No menciones que estás leyendo su perfil, simplemente sé útil"
-            }
-            full_messages = [system_msg, activation_prompt]
-        else:
-            full_messages = [system_msg] + messages
-        model_name = model or settings.openai_model
-        tools = tool_registry.openai_schemas()
-        iteration_count = 0
-
-        while iteration_count < settings.max_tool_iterations:
-            iteration_count += 1
-
-            stream = await self._client.chat.completions.create(
-                model=model_name,
-                messages=full_messages,
-                tools=tools if tools else None,
-                stream=True,
-                stream_options={"include_usage": False},
-            )
-
-            tool_calls_buf: dict[int, dict] = {}
-            text_buffer = ""
-            reasoning_buffer = ""
-            thinking_started = False
-            thinking_start_time = 0.0
-
-            async for chunk in stream:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta is None:
-                    continue
-
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    if not thinking_started:
-                        thinking_started = True
-                        thinking_start_time = time_module.monotonic()
-                        yield json.dumps({"type": EVENT_THINKING_START})
-                    reasoning_buffer += reasoning
-                    yield json.dumps({"type": EVENT_THINKING_DELTA, "content": reasoning})
-
-                if delta.content:
-                    if thinking_started:
-                        elapsed = time_module.monotonic() - thinking_start_time
-                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                        thinking_started = False
-                    text_buffer += delta.content
-                    yield json.dumps({"type": EVENT_TEXT_DELTA, "content": delta.content})
-
-                if delta.tool_calls:
-                    if thinking_started:
-                        elapsed = time_module.monotonic() - thinking_start_time
-                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                        thinking_started = False
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_buf:
-                            tool_calls_buf[idx] = {
-                                "id": tc.id or f"call_{idx}_{iteration_count}",
-                                "function": {"name": "", "arguments": ""},
-                            }
-                        if tc.id:
-                            tool_calls_buf[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tool_calls_buf[idx]["function"]["name"] += tc.function.name
-                            if tc.function.arguments:
-                                tool_calls_buf[idx]["function"]["arguments"] += tc.function.arguments
-
-            if thinking_started:
-                elapsed = time_module.monotonic() - thinking_start_time
-                yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
-                thinking_started = False
-
-            assistant_msg: dict = {"role": "assistant", "content": text_buffer or None}
-            if reasoning_buffer:
-                assistant_msg["reasoning_content"] = reasoning_buffer
-
-            if not tool_calls_buf:
-                full_messages.append(assistant_msg)
-                yield json.dumps({"type": EVENT_DONE})
-                return
-
-            tool_calls_list = [
-                {
-                    "id": tool_calls_buf[idx]["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tool_calls_buf[idx]["function"]["name"],
-                        "arguments": tool_calls_buf[idx]["function"]["arguments"],
-                    },
-                }
-                for idx in sorted(tool_calls_buf.keys())
-            ]
-            assistant_msg["tool_calls"] = tool_calls_list
-            full_messages.append(assistant_msg)
-
-            for idx in sorted(tool_calls_buf.keys()):
-                tc = tool_calls_buf[idx]
-                fn_name = tc["function"]["name"]
-                fn_args_str = tc["function"]["arguments"]
-                fn_args = {}
-                if fn_args_str.strip():
-                    try:
-                        fn_args = json.loads(fn_args_str)
-                    except json.JSONDecodeError:
-                        fn_args = {"_raw": fn_args_str}
-                
-                # Inject session_id for tools that need it for cache invalidation
-                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
-                    fn_args["session_id"] = session_id
-                
-                tc_id = tc["id"]
-
-                yield json.dumps({
-                    "type": EVENT_TOOL_CALL_START,
-                    "toolCallId": tc_id,
-                    "tool": fn_name,
-                    "input": fn_args,
-                })
-
-                result = await tool_registry.execute(fn_name, fn_args)
-
-                yield json.dumps({
-                    "type": EVENT_TOOL_CALL_END,
-                    "toolCallId": tc_id,
-                    "output": result,
-                    "status": "error" if result.startswith("Error") else "success",
-                })
-
-                full_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": result,
-                })
-
-        yield json.dumps({"type": "error", "content": "Max tool iterations reached"})
-        yield json.dumps({"type": EVENT_DONE})
-
-    async def list_models(self) -> list[dict]:
-        now = time_module.monotonic()
-        cached, timestamp = self._models_cache
-        if cached and now - timestamp < 60:
-            return cached
-        if not self._client:
-            return cached
-        try:
-            response = await self._client.models.list()
-            models = [{"id": m.id, "label": m.id} for m in response.data]
-            self._models_cache = (models, now)
-            return models
-        except Exception:
-            return cached
-
-
-agent_service = AgentService()
 </file>
 
 <file path="backend/app/routers/chat.py">
@@ -6485,244 +5920,399 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
 };
 </file>
 
-<file path="frontend/src/features/memory/presentation/components/MemoryFileList.tsx">
-import { useState, useMemo } from 'react';
-import { useMemoryStore } from '../store/memoryStore';
-import { SearchIcon, PlusIcon } from '../../../../core/presentation/components/icons';
-import type { MemoryFileType } from '../../domain/entities/MemoryFile';
-import { Skeleton } from '../../../../core/presentation/components/Skeleton';
+<file path="frontend/src/features/chat/presentation/components/ChatPanel.tsx">
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useChatStore } from '../store/chatStore';
+import { useSettingsStore } from '../../../settings/presentation/store/settingsStore';
+import { useConversationStore } from '../../../conversations/presentation/store/conversationStore';
+import { ChatMessage } from './ChatMessage';
+import { ChatInput } from './ChatInput';
+import { TypingIndicator } from './TypingIndicator';
+import { CogIcon, KraidIcon, ArrowDownIcon } from '../../../../core/presentation/components/icons';
+import { Avatar } from '../../../../core/presentation/components/Avatar';
 
-const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Profile', value: 'profile' },
-  { label: 'Projects', value: 'projects' },
-  { label: 'Feedback', value: 'feedback' },
-  { label: 'References', value: 'references' },
+const SUGGESTIONS = [
+  "Explain how this code works",
+  "Help me think through a problem",
+  "Summarize the key points",
 ];
 
-const typeStyles: Record<MemoryFileType, { dot: string; badge: string }> = {
-  profile: { dot: 'bg-blue-400', badge: 'bg-blue-400/10 text-blue-600' },
-  projects: { dot: 'bg-accent', badge: 'bg-accent/10 text-accent' },
-  feedback: { dot: 'bg-amber-400', badge: 'bg-amber-400/10 text-amber-700' },
-  references: { dot: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' },
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
 };
 
-const typeLabels: Record<MemoryFileType, string> = {
-  profile: 'Profile',
-  projects: 'Projects',
-  feedback: 'Feedback',
-  references: 'References',
-};
+const WelcomeScreen = ({ onSuggest, agentName }: { onSuggest: (text: string) => void, agentName: string }) => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center animate-message-slide-up">
+    <div className="flex flex-col items-center gap-4">
+      <Avatar role="assistant" size="lg" />
+      <div>
+        <h2 className="font-serif text-xl font-medium text-text">{getGreeting()}</h2>
+        <p className="mt-1 text-sm text-warm-silver">How can {agentName} help you today?</p>
+      </div>
+    </div>
+    <div className="flex flex-wrap justify-center gap-2 max-w-md mt-2">
+      {SUGGESTIONS.map((suggestion) => (
+        <button
+          key={suggestion}
+          onClick={() => onSuggest(suggestion)}
+          className="rounded-full border border-border-warm bg-card px-4 py-2 text-sm text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
+        >
+          {suggestion}
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
-const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
-  { label: 'Profile', value: 'profile' },
-  { label: 'Projects', value: 'projects' },
-  { label: 'Feedback', value: 'feedback' },
-  { label: 'References', value: 'references' },
-];
+export const ChatPanel = () => {
+  const { isLoading, isStreaming, error, sendMessage, triggerGreeting, clearError } = useChatStore();
+  const { activeConversationId, conversations, loadConversations } = useConversationStore();
+  const { preferences, openSettings } = useSettingsStore();
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollFab, setShowScrollFab] = useState(false);
+  const rafRef = useRef<number>(0);
+  const greetingTriggeredRef = useRef(false);
+  const prevActiveIdRef = useRef<string | null>(null);
 
-const formatRelativeTime = (date: Date): string => {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return date.toLocaleDateString([], { dateStyle: 'medium' });
-};
+  const activeConversation = conversations.find(c => c.id === activeConversationId);
+  const messages = useMemo(() => activeConversation?.messages || [], [activeConversation?.messages]);
 
-const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
-  const [type, setType] = useState<MemoryFileType>('user');
-  const [title, setTitle] = useState('');
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    onCreate(type, title.trim());
-    onClose();
-  };
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || showScrollFab) return;
+
+    if (isStreaming) {
+      el.scrollTop = el.scrollHeight;
+      const interval = setInterval(() => {
+        el.scrollTop = el.scrollHeight;
+      }, 40);
+      return () => clearInterval(interval);
+    }
+
+    scrollToBottom();
+  }, [messages, isLoading, isStreaming, showScrollFab, scrollToBottom]);
+
+  useEffect(() => {
+    const prevId = prevActiveIdRef.current;
+    prevActiveIdRef.current = activeConversationId;
+
+    if (activeConversationId === null && prevId !== null) {
+      greetingTriggeredRef.current = false;
+    }
+
+    const isNewChatClick = activeConversationId === null && prevId !== null;
+    const isFirstTime = prevId === null && conversations.length === 0;
+
+    if (!greetingTriggeredRef.current && (isNewChatClick || isFirstTime) && !isStreaming && !isLoading) {
+      greetingTriggeredRef.current = true;
+      triggerGreeting();
+    }
+  }, [activeConversationId, isStreaming, isLoading, conversations.length, triggerGreeting]);
+
+  const handleScroll = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      if (!scrollContainerRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
+      setShowScrollFab(isScrolledUp);
+    });
+  }, []);
+
+  const statusColor = error ? 'bg-error' : isLoading ? 'bg-amber-500' : 'bg-green-500';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-80 rounded-2xl bg-card p-5 shadow-xl ring-1 ring-border animate-scale-in" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 font-serif text-base font-medium text-text">New Memory</h3>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Architecture Decision"
-              className="w-full rounded-lg border border-border-warm bg-bg px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent placeholder:text-olive-gray"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Type</label>
-            <div className="flex gap-1.5">
-              {newTypeOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setType(opt.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    type === opt.value
-                      ? 'bg-accent text-ivory'
-                      : 'bg-warm-sand text-charcoal-warm hover:bg-border-warm'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+    <div className="flex h-full flex-col relative bg-transparent">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border-cream px-4 py-3 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-ivory">
+              <KraidIcon className="h-3 w-3" />
             </div>
+            <div className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-card ${statusColor}`} />
           </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-charcoal-warm transition-colors hover:bg-warm-sand">
-              Cancel
-            </button>
-            <button type="submit" disabled={!title.trim()} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-ivory transition-colors hover:bg-coral disabled:opacity-40">
-              Create
-            </button>
+          <h1 className="font-serif text-base font-medium text-text">{preferences.agentName}</h1>
+        </div>
+        <button
+          onClick={openSettings}
+          className="rounded-full p-1.5 text-warm-silver transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
+          aria-label="Open settings"
+        >
+          <CogIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center justify-between border-b border-border-cream bg-error/10 px-4 py-2 shrink-0">
+          <p className="text-xs text-error">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-xs text-error underline-offset-2 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Messages area */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex flex-1 flex-col overflow-y-auto px-4 pt-5 pb-48 contain-content"
+      >
+        <div className="max-w-3xl mx-auto w-full flex flex-col gap-6">
+          {messages.length === 0 && !isLoading ? (
+            <WelcomeScreen onSuggest={sendMessage} agentName={preferences.agentName} />
+          ) : (
+            <>
+              {messages.map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
+              {isLoading && <TypingIndicator />}
+              <div ref={bottomRef} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Scroll to bottom FAB */}
+      {showScrollFab && (
+        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-10 animate-message-slide-up" style={{ animationDuration: '0.2s' }}>
+          <button
+            onClick={scrollToBottom}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-bg shadow-md ring-1 ring-border text-charcoal-warm transition-colors hover:text-accent hover:bg-warm-sand"
+            aria-label="Scroll to bottom"
+          >
+            <ArrowDownIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="absolute bottom-6 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
+        <div className="w-full max-w-3xl pointer-events-auto animate-message-slide-up">
+          <div className="bg-card rounded-2xl shadow-sm ring-1 ring-border-warm">
+            <ChatInput onSend={sendMessage} isLoading={isLoading} />
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
 };
+</file>
 
-export const MemoryFileList = () => {
-  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
-  const [showNewModal, setShowNewModal] = useState(false);
+<file path="frontend/src/features/memory/presentation/components/MemoryFileContent.tsx">
+import { useState, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useMemoryStore } from '../store/memoryStore';
+import { EditIcon } from '../../../../core/presentation/components/icons';
+import type { Components } from 'react-markdown';
 
-  const filteredFiles = useMemo(() => {
-    let result = files;
-    if (activeFilter !== 'all') {
-      result = result.filter((f) => f.type === activeFilter);
+const parseMemoryContent = (rawContent: string) => {
+  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+  const match = rawContent.match(frontmatterRegex);
+
+  if (!match) return { metadata: Record<string, string>, body: rawContent };
+
+  const metadata: Record<string, string> = {};
+  match[1].split('\n').forEach(line => {
+    const [key, ...rest] = line.split(':');
+    if (key && rest.length) {
+      metadata[key.trim()] = rest.join(':').trim();
     }
-    if (searchQuery.trim()) {
-      const lower = searchQuery.toLowerCase();
-      result = result.filter(
-        (f) =>
-          f.title.toLowerCase().includes(lower) ||
-          f.filename.toLowerCase().includes(lower),
-      );
-    }
-    return result;
-  }, [files, activeFilter, searchQuery]);
+  });
 
-  const handleCreate = async (type: MemoryFileType, title: string) => {
-    await addFile(type, title);
+  return { metadata, body: match[2].trim() };
+};
+
+const formatDate = (date: Date): string =>
+  date.toLocaleDateString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '');
+    const isInline = !match && !String(children).includes('\n');
+    return !isInline ? (
+      <div className="my-4 overflow-hidden rounded-lg border border-border">
+        <SyntaxHighlighter
+          style={materialLight}
+          language={match?.[1] || 'text'}
+          PreTag="div"
+          customStyle={{ margin: 0, background: 'transparent' }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
+    ) : (
+      <code className={className} {...props}>{children}</code>
+    );
+  },
+};
+
+export const MemoryFileContent = () => {
+  const { files, selectedFileId, selectFile, isEditing, updateFile, setEditing } = useMemoryStore();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
+
+  const [localContent, setLocalContent] = useState(selectedFile?.content ?? '');
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  if (selectedFile?.id !== lastSelectedId) {
+    setLastSelectedId(selectedFile?.id ?? null);
+    setLocalContent(selectedFile?.content ?? '');
+  }
+
+  const { metadata, body } = parseMemoryContent(localContent);
+
+  const handleSave = useCallback(async (content: string) => {
+    if (!selectedFileId || !selectedFile) return;
+    await updateFile(selectedFileId, { content });
+  }, [selectedFileId, selectedFile, updateFile]);
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLocalContent(e.target.value);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      void handleSave(e.target.value);
+    }, 1500);
   };
 
+  const toggleEdit = () => {
+    const next = !isEditing;
+    setEditing(next);
+    if (next) {
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    } else {
+      void handleSave(localContent);
+    }
+  };
+
+  if (!selectedFile) {
+    return (
+      <div className="flex h-full flex-1 items-center justify-center bg-bg">
+        <div className="text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-warm-sand">
+            <span className="text-lg text-olive-gray">📝</span>
+          </div>
+          <p className="text-sm text-olive-gray">Select a file to preview</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
-      <div className="border-b border-border-cream px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-text">Memory Files</h3>
-          <span className="rounded-full bg-warm-sand px-2 py-0.5 text-xs text-olive-gray">
-            {files.length}
-          </span>
-        </div>
-      </div>
-
-      <div className="border-b border-border-cream px-4 py-3">
-        <div className="relative">
-          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-warm" />
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg px-9 py-2 text-sm text-text placeholder-charcoal-warm outline-none focus:ring-2 focus:ring-accent"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-1.5 border-b border-border-cream px-4 py-2.5">
-        <div className="flex flex-wrap gap-1.5">
-          {FILE_TYPES.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setActiveFilter(t.value)}
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                activeFilter === t.value
-                  ? 'bg-accent/10 text-accent'
-                  : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+    <div className="flex h-full flex-1 flex-col bg-transparent text-text">
+      <div className="flex flex-col border-b border-border-cream px-6 py-5">
         <button
-          onClick={() => setShowNewModal(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-olive-gray transition-colors hover:bg-accent/10 hover:text-accent"
-          title="New Memory"
+          onClick={() => selectFile(null)}
+          className="mb-4 self-start rounded px-2 py-1 text-xs font-medium text-olive-gray transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
         >
-          <PlusIcon className="h-3.5 w-3.5" />
+          ← Back
+        </button>
+        <h2 className="font-serif text-2xl font-medium text-text">
+          {metadata.name || selectedFile.title}
+        </h2>
+        {metadata.description && (
+          <p className="mt-2 text-sm text-stone-gray font-sans">
+            {metadata.description}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-1 items-center justify-between border-b border-border-cream px-6 py-3">
+        <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
+        <button
+          onClick={toggleEdit}
+          className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            isEditing
+              ? 'bg-accent text-ivory'
+              : 'text-charcoal-warm hover:bg-warm-sand'
+          }`}
+        >
+          <EditIcon className="h-3.5 w-3.5" />
+          {isEditing ? 'Done' : 'Edit'}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {isLoading && files.length === 0 ? (
-          <div className="space-y-2 p-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-3/4" />
-          </div>
-        ) : filteredFiles.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <p className="text-sm text-charcoal-warm">No files yet</p>
-            <button
-              onClick={() => setShowNewModal(true)}
-              className="mt-2 text-xs text-accent transition-colors hover:text-coral"
-            >
-              Create your first memory
-            </button>
+        {isEditing ? (
+          <div className="h-full px-10 py-8">
+            <textarea
+              ref={textareaRef}
+              value={localContent}
+              onChange={handleContentChange}
+              placeholder="Write your content here…"
+              className="h-full w-full resize-none bg-transparent outline-none prose font-mono text-sm leading-relaxed text-text placeholder:text-olive-gray"
+            />
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5 px-2 py-2">
-            {filteredFiles.map((file) => {
-              const styles = typeStyles[file.type];
-              return (
-                <button
-                  key={file.id}
-                  onClick={() => selectFile(file.id)}
-                  className={`group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    selectedFileId === file.id
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                  }`}
-                >
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${styles.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{file.title}</div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${styles.badge}`}>
-                        {typeLabels[file.type]}
-                      </span>
-                      <span className="text-[11px] text-olive-gray">
-                        {formatRelativeTime(file.lastModified)}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+          <div className="prose prose-sm max-w-none px-6 py-8 pb-32">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {body}
+            </ReactMarkdown>
           </div>
         )}
       </div>
 
-      {showNewModal && (
-        <NewMemoryModal
-          onClose={() => setShowNewModal(false)}
-          onCreate={handleCreate}
-        />
+      <div className="flex shrink-0 items-center justify-between border-t border-border-cream bg-card px-6 py-2 text-xs text-olive-gray">
+        <span className="font-mono">{selectedFile.filename}</span>
+        <span>{selectedFile.wordCount} words</span>
+      </div>
+    </div>
+  );
+};
+</file>
+
+<file path="frontend/src/features/memory/presentation/components/MemoryViewer.tsx">
+import { useEffect } from 'react';
+import { useMemoryStore } from '../store/memoryStore';
+import { MemoryFileList } from './MemoryFileList';
+import { MemoryFileContent } from './MemoryFileContent';
+
+export const MemoryViewer = () => {
+  const { loadFiles, selectedFileId } = useMemoryStore();
+
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
+
+  return (
+    <div className="flex h-full w-full flex-col bg-card overflow-hidden">
+      {!selectedFileId ? (
+        <div className="animate-fade-in flex h-full flex-col">
+          <MemoryFileList />
+        </div>
+      ) : (
+        <div className="animate-fade-in flex h-full flex-col">
+          <MemoryFileContent key={selectedFileId} />
+        </div>
       )}
     </div>
   );
@@ -7018,6 +6608,242 @@ env/
 .kraid/
 </file>
 
+<file path="backend/app/agent/service.py">
+import json
+import time as time_module
+import datetime
+from typing import AsyncIterator, Optional
+
+from openai import AsyncOpenAI
+
+from app.config import settings
+from app.agent.tools import tool_registry
+from app.agent.context.user_context import build_user_context_block
+from app.agent.context.org_context import build_org_context_snapshot
+from app.agent.prompts import DOMAIN_AGENT_PROMPT
+
+EVENT_TOOL_CALL_START = "tool_call_start"
+EVENT_TOOL_CALL_END = "tool_call_end"
+EVENT_TEXT_DELTA = "text_delta"
+EVENT_THINKING_START = "thinking_start"
+EVENT_THINKING_DELTA = "thinking_delta"
+EVENT_THINKING_END = "thinking_end"
+EVENT_DONE = "done"
+
+BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
+- canvas: crear, leer, editar y listar documentos del canvas
+- memory: leer, escribir y listar archivos markdown en .kraid/
+- fs: leer, escribir, listar y buscar archivos en el repo
+- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
+
+AUTO_MEMORY_INSTRUCTIONS = """
+Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
+Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+
+Reglas para guardar memoria:
+- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
+- Usa el 'type' correcto:
+  - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
+  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
+  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
+  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
+- Qué NO guardar:
+  - Tokens de API o secretos.
+  - Estados temporales (ej: "estoy reiniciando el server").
+  - Conversaciones enteras o código fuente largo.
+"""
+
+class AgentService:
+    def __init__(self):
+        self._client: Optional[AsyncOpenAI] = None
+        self._models_cache: tuple[list[dict], float] = ([], 0.0)
+        if settings.openai_api_key:
+            self._client = AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url or None,
+            )
+
+    @property
+    def is_ready(self) -> bool:
+        return self._client is not None
+
+    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
+        if not self._client:
+            yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
+            return
+
+        user_context_block = build_user_context_block(session_id)
+        today = datetime.date.today().isoformat()
+        org_snapshot = build_org_context_snapshot()
+        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
+
+        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
+
+        system_msg = {
+            "role": "system",
+            "content": system_content,
+        }
+
+        if not messages:
+            activation_prompt = {
+                "role": "user",
+                "content": "El usuario ha iniciado una nueva sesión. Salúdalo de forma cálida y proactiva basándose en su perfil y proyectos actuales. No menciones que estás leyendo su perfil, simplemente sé útil"
+            }
+            full_messages = [system_msg, activation_prompt]
+        else:
+            full_messages = [system_msg] + messages
+        model_name = model or settings.openai_model
+        tools = tool_registry.openai_schemas()
+        iteration_count = 0
+
+        while iteration_count < settings.max_tool_iterations:
+            iteration_count += 1
+
+            stream = await self._client.chat.completions.create(
+                model=model_name,
+                messages=full_messages,
+                tools=tools if tools else None,
+                stream=True,
+                stream_options={"include_usage": False},
+            )
+
+            tool_calls_buf: dict[int, dict] = {}
+            text_buffer = ""
+            reasoning_buffer = ""
+            thinking_started = False
+            thinking_start_time = 0.0
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
+
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    if not thinking_started:
+                        thinking_started = True
+                        thinking_start_time = time_module.monotonic()
+                        yield json.dumps({"type": EVENT_THINKING_START})
+                    reasoning_buffer += reasoning
+                    yield json.dumps({"type": EVENT_THINKING_DELTA, "content": reasoning})
+
+                if delta.content:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
+                    text_buffer += delta.content
+                    yield json.dumps({"type": EVENT_TEXT_DELTA, "content": delta.content})
+
+                if delta.tool_calls:
+                    if thinking_started:
+                        elapsed = time_module.monotonic() - thinking_start_time
+                        yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                        thinking_started = False
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_buf:
+                            tool_calls_buf[idx] = {
+                                "id": tc.id or f"call_{idx}_{iteration_count}",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if tc.id:
+                            tool_calls_buf[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_buf[idx]["function"]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_buf[idx]["function"]["arguments"] += tc.function.arguments
+
+            if thinking_started:
+                elapsed = time_module.monotonic() - thinking_start_time
+                yield json.dumps({"type": EVENT_THINKING_END, "duration": round(elapsed, 1)})
+                thinking_started = False
+
+            assistant_msg: dict = {"role": "assistant", "content": text_buffer or None}
+            if reasoning_buffer:
+                assistant_msg["reasoning_content"] = reasoning_buffer
+
+            if not tool_calls_buf:
+                full_messages.append(assistant_msg)
+                yield json.dumps({"type": EVENT_DONE})
+                return
+
+            tool_calls_list = [
+                {
+                    "id": tool_calls_buf[idx]["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tool_calls_buf[idx]["function"]["name"],
+                        "arguments": tool_calls_buf[idx]["function"]["arguments"],
+                    },
+                }
+                for idx in sorted(tool_calls_buf.keys())
+            ]
+            assistant_msg["tool_calls"] = tool_calls_list
+            full_messages.append(assistant_msg)
+
+            for idx in sorted(tool_calls_buf.keys()):
+                tc = tool_calls_buf[idx]
+                fn_name = tc["function"]["name"]
+                fn_args_str = tc["function"]["arguments"]
+                fn_args = {}
+                if fn_args_str.strip():
+                    try:
+                        fn_args = json.loads(fn_args_str)
+                    except json.JSONDecodeError:
+                        fn_args = {"_raw": fn_args_str}
+                
+                # Inject session_id for tools that need it for cache invalidation
+                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
+                    fn_args["session_id"] = session_id
+                
+                tc_id = tc["id"]
+
+                yield json.dumps({
+                    "type": EVENT_TOOL_CALL_START,
+                    "toolCallId": tc_id,
+                    "tool": fn_name,
+                    "input": fn_args,
+                })
+
+                result = await tool_registry.execute(fn_name, fn_args)
+
+                yield json.dumps({
+                    "type": EVENT_TOOL_CALL_END,
+                    "toolCallId": tc_id,
+                    "output": result,
+                    "status": "error" if result.startswith("Error") else "success",
+                })
+
+                full_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": result,
+                })
+
+        yield json.dumps({"type": "error", "content": "Max tool iterations reached"})
+        yield json.dumps({"type": EVENT_DONE})
+
+    async def list_models(self) -> list[dict]:
+        now = time_module.monotonic()
+        cached, timestamp = self._models_cache
+        if cached and now - timestamp < 60:
+            return cached
+        if not self._client:
+            return cached
+        try:
+            response = await self._client.models.list()
+            models = [{"id": m.id, "label": m.id} for m in response.data]
+            self._models_cache = (models, now)
+            return models
+        except Exception:
+            return cached
+
+
+agent_service = AgentService()
+</file>
+
 <file path="frontend/src/App.tsx">
 import { useEffect } from 'react';
 import { SplitScreenLayout } from './core/presentation/layouts/SplitScreenLayout';
@@ -7056,167 +6882,235 @@ function App() {
 export default App;
 </file>
 
-<file path="frontend/src/core/presentation/layouts/SplitScreenLayout.tsx">
-import { useState, useRef, useEffect } from 'react';
-import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
-import { Sidebar } from '../components/Sidebar';
-import { StatusBar } from '../components/StatusBar';
+<file path="frontend/src/features/memory/presentation/components/MemoryFileList.tsx">
+import { useState, useMemo } from 'react';
+import { useMemoryStore } from '../store/memoryStore';
+import { SearchIcon, PlusIcon } from '../../../../core/presentation/components/icons';
+import type { MemoryFileType } from '../../domain/entities/MemoryFile';
+import { Skeleton } from '../../../../core/presentation/components/Skeleton';
 
-type RightPanelMode = 'canvas' | 'memory' | 'closed';
+const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
+  { label: 'All', value: 'all' },
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
+  { label: 'Feedback', value: 'feedback' },
+  { label: 'References', value: 'references' },
+];
 
-interface SplitScreenLayoutProps {
-  leftPanel: React.ReactNode;
-  rightPanel: React.ReactNode;
-  memoryPanel: React.ReactNode;
-}
+const typeLabels: Record<MemoryFileType, string> = {
+  profile: 'Profile',
+  projects: 'Projects',
+  feedback: 'Feedback',
+  references: 'References',
+};
 
-export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
-  leftPanel,
-  rightPanel,
-  memoryPanel,
-}) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
-  const [leftWidth, setLeftWidth] = useState(42);
-  const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
+  { label: 'Profile', value: 'profile' },
+  { label: 'Projects', value: 'projects' },
+  { label: 'Feedback', value: 'feedback' },
+  { label: 'References', value: 'references' },
+];
 
-  const isMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+const formatRelativeTime = (date: Date): string => {
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return date.toLocaleDateString([], { dateStyle: 'medium' });
+};
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 768) {
-        setRightPanelMode('closed');
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
+  const [type, setType] = useState<MemoryFileType>('user');
+  const [title, setTitle] = useState('');
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging || !containerRef.current) return;
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-      setLeftWidth(Math.min(Math.max(newWidth, 20), 80));
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    } else {
-      document.body.style.cursor = 'default';
-      document.body.style.userSelect = 'auto';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  const isRightPanelVisible = rightPanelMode !== 'closed';
-
-  const handleCanvasToggle = () =>
-    setRightPanelMode((prev) => (prev === 'canvas' ? 'closed' : 'canvas'));
-
-  const handleMemoryToggle = () =>
-    setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    onCreate(type, title.trim());
+    onClose();
+  };
 
   return (
-    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
-      <div className="flex flex-1 overflow-hidden">
-        <div
-          className={`absolute inset-y-0 left-0 z-40 flex w-64 transform flex-col transition-transform duration-300 ease-in-out ${
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
-        >
-          <div className="m-2 flex-1 overflow-hidden rounded-2xl bg-card ring-1 ring-border-warm md:m-3">
-            <Sidebar onClose={() => setSidebarOpen(false)} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-80 rounded-2xl bg-card p-5 shadow-xl ring-1 ring-border animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 font-serif text-base font-medium text-text">New Memory</h3>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Architecture Decision"
+              className="w-full rounded-lg border border-border-warm bg-bg px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent placeholder:text-olive-gray"
+              autoFocus
+            />
           </div>
-        </div>
-
-        <div
-          ref={containerRef}
-          className={`flex flex-1 gap-3 transition-all duration-300 ease-in-out ${
-            sidebarOpen ? 'md:ml-64' : 'ml-0'
-          }`}
-        >
-          <div
-            style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
-            className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden rounded-none bg-card md:rounded-2xl ${
-              isDragging ? '' : 'transition-[width] duration-300 ease-in-out'
-            } ${isRightPanelVisible ? 'will-change-[width]' : ''} ring-1 ring-border-warm`}
-          >
-            <div className="flex h-14 shrink-0 items-center justify-between bg-bg px-3">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
-                aria-label="Toggle Sidebar"
-              >
-                <MenuIcon className="h-5 w-5" />
-              </button>
-
-              <div className="flex items-center gap-1">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-charcoal-warm">Type</label>
+            <div className="flex gap-1.5">
+              {newTypeOptions.map((opt) => (
                 <button
-                  onClick={handleCanvasToggle}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                    rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setType(opt.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    type === opt.value
+                      ? 'bg-accent text-ivory'
+                      : 'bg-warm-sand text-charcoal-warm hover:bg-border-warm'
                   }`}
-                  aria-label="Toggle Canvas"
                 >
-                  <PanelRightIcon className="h-5 w-5" />
+                  {opt.label}
                 </button>
-                <button
-                  onClick={handleMemoryToggle}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                    rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
-                  }`}
-                  aria-label="Toggle Memory Viewer"
-                >
-                  <BrainIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {leftPanel}
+              ))}
             </div>
           </div>
-
-          {!isMobile && isRightPanelVisible && (
-            <div
-              className="z-20 flex cursor-col-resize items-center justify-center transition-colors"
-              style={{ width: '16px' }}
-              onMouseDown={() => setIsDragging(true)}
-            >
-              <div className="h-10 w-0.5 rounded-full transition-colors hover:bg-ring-warm/40 bg-ring-warm/0" />
-            </div>
-          )}
-
-          <div
-            className={`min-w-0 flex-1 overflow-hidden rounded-none bg-card transition-all duration-300 ease-in-out md:rounded-2xl ring-1 ring-border-warm ${
-              !isRightPanelVisible ? 'hidden opacity-0' : 'opacity-100'
-            }`}
-          >
-            {rightPanelMode === 'canvas' && rightPanel}
-            {rightPanelMode === 'memory' && memoryPanel}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-charcoal-warm transition-colors hover:bg-warm-sand">
+              Cancel
+            </button>
+            <button type="submit" disabled={!title.trim()} className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-ivory transition-colors hover:bg-coral disabled:opacity-40">
+              Create
+            </button>
           </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export const MemoryFileList = () => {
+  const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
+  const [showNewModal, setShowNewModal] = useState(false);
+
+  const filteredFiles = useMemo(() => {
+    let result = files;
+    if (activeFilter !== 'all') {
+      result = result.filter((f) => f.type === activeFilter);
+    }
+    if (searchQuery.trim()) {
+      const lower = searchQuery.toLowerCase();
+      result = result.filter(
+        (f) =>
+          f.title.toLowerCase().includes(lower) ||
+          f.filename.toLowerCase().includes(lower),
+      );
+    }
+    return result;
+  }, [files, activeFilter, searchQuery]);
+
+  const handleCreate = async (type: MemoryFileType, title: string) => {
+    await addFile(type, title);
+  };
+
+  return (
+    <div className="flex w-[280px] shrink-0 flex-col border-r border-border-cream bg-card">
+      <div className="border-b border-border-cream px-4 py-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-text">Memory Files</h3>
+          <span className="rounded-full bg-warm-sand px-2 py-0.5 text-xs text-olive-gray">
+            {files.length}
+          </span>
         </div>
+      </div>
 
-        {sidebarOpen && (
-          <div
-            className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm md:hidden"
-            onClick={() => setSidebarOpen(false)}
+      <div className="border-b border-border-cream px-4 py-3">
+        <div className="relative">
+          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-warm" />
+          <input
+            type="text"
+            placeholder="Search files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-border bg-bg px-9 py-2 text-sm text-text placeholder-charcoal-warm outline-none focus:ring-2 focus:ring-accent"
           />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 overflow-x-auto px-4 py-3 border-b border-border-cream scrollbar-hide">
+          {FILE_TYPES.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setActiveFilter(t.value)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                activeFilter === t.value
+                  ? 'bg-charcoal-warm text-ivory shadow-sm'
+                  : 'bg-transparent text-olive-gray ring-1 ring-border-warm hover:bg-warm-sand hover:text-text'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-ivory transition-colors hover:bg-coral"
+            title="New Memory"
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {isLoading && files.length === 0 ? (
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-3/4" />
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-charcoal-warm">No files yet</p>
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="mt-2 text-xs text-accent transition-colors hover:text-coral"
+            >
+              Create your first memory
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1 px-2 py-2">
+            {filteredFiles.map((file) => (
+              <button
+                key={file.id}
+                onClick={() => selectFile(file.id)}
+                className={`group flex w-full flex-col items-start gap-1 rounded-xl px-4 py-3 text-left transition-colors ${
+                  selectedFileId === file.id
+                    ? 'bg-warm-sand shadow-sm ring-1 ring-ring-subtle'
+                    : 'hover:bg-warm-sand/50'
+                }`}
+              >
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-olive-gray">
+                    {typeLabels[file.type]}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-warm-silver">
+                    {formatRelativeTime(file.lastModified)}
+                  </span>
+                </div>
+                <span className="font-serif text-[15px] font-medium leading-tight text-text">
+                  {file.title}
+                </span>
+                <span className="font-mono text-[11px] text-stone-gray truncate max-w-full">
+                  {file.filename}
+                </span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
-      <StatusBar />
+
+      {showNewModal && (
+        <NewMemoryModal
+          onClose={() => setShowNewModal(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </div>
   );
 };
@@ -7507,6 +7401,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
 ### Changed
 
+- **SplitScreenLayout refactorizado**: Chat como lienzo base (bg-bg transparente). Sidebar y paneles derecho mantienen estilo tarjeta flotante (bg-card, rounded-2xl, ring-border-warm).
+- **ChatPanel**: Fondo transparente, área de mensajes con max-w-3xl centrado y pb-48 para间距. Input flotante centrado con pointer-events-none wrapper.
+- **StatusBar**: Convertido a elemento flotante (absolute bottom-2 right-4 z-20) con fondo transparente.
 - **Viewport dinámico**: `SplitScreenLayout` usa `h-dvh` (dynamic viewport height) en vez de `h-screen`. Evita que toolbars móviles recorten la interfaz inferior al recalcular altura real utilizable.
 - **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
 - **StatusBar**: Lee modelo activo desde `settingsStore.selectedModel` con fallback a `agentStatusStore.modelName`.
@@ -7606,6 +7503,182 @@ export const useChatStore = create<ChatState>((set, get) => ({
 - **useStreamingText optimizado**: Intervalo 30ms→40ms, speed 3→5 chars/frame.
 - **SplitScreenLayout transiciones**: `transition-[width]` deshabilitado durante drag; `min-w-0` para flex shrinking.
 - **chatStore streaming**: Finalización persiste vía `conversationRepository.save()` antes de `loadConversations()` para evitar desaparición del mensaje tras stream.
+</file>
+
+<file path="frontend/src/core/presentation/layouts/SplitScreenLayout.tsx">
+import { useState, useRef, useEffect } from 'react';
+import { MenuIcon, PanelRightIcon, BrainIcon } from '../components/icons';
+import { Sidebar } from '../components/Sidebar';
+import { StatusBar } from '../components/StatusBar';
+import { useSidebarStore } from '../store/sidebarStore';
+
+type RightPanelMode = 'canvas' | 'memory' | 'closed';
+
+interface SplitScreenLayoutProps {
+  leftPanel: React.ReactNode;
+  rightPanel: React.ReactNode;
+  memoryPanel: React.ReactNode;
+}
+
+export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
+  leftPanel,
+  rightPanel,
+  memoryPanel,
+}) => {
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
+  const [leftWidth, setLeftWidth] = useState(42);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const { sidebarOpen, toggleSidebar } = useSidebarStore();
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile) {
+      requestAnimationFrame(() => setRightPanelMode('closed'));
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      setLeftWidth(Math.min(Math.max(newWidth, 20), 80));
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const isRightPanelVisible = rightPanelMode !== 'closed';
+
+  const handleCanvasToggle = () =>
+    setRightPanelMode((prev) => (prev === 'canvas' ? 'closed' : 'canvas'));
+
+  const handleMemoryToggle = () =>
+    setRightPanelMode((prev) => (prev === 'memory' ? 'closed' : 'memory'));
+
+  return (
+    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg p-2 md:p-3 relative">
+      <div className="flex flex-1 overflow-hidden">
+        <div
+          className={`
+            flex shrink-0 flex-col overflow-hidden transition-[width,opacity,transform] duration-300 ease-in-out z-40
+            ${isMobile
+              ? 'fixed inset-y-0 left-0 h-full'
+              : 'relative h-full'
+            }
+            ${sidebarOpen
+              ? (isMobile ? 'w-64 translate-x-0' : 'w-64 opacity-100')
+              : (isMobile ? 'w-64 -translate-x-full' : 'w-0 opacity-0')
+            }
+          `}
+        >
+          <div className="m-2 flex-1 overflow-hidden rounded-2xl bg-card ring-1 ring-border-warm md:my-3 md:ml-3 md:mr-0">
+            <Sidebar onClose={() => isMobile && useSidebarStore.getState().closeSidebar()} />
+          </div>
+        </div>
+
+        <div
+          ref={containerRef}
+          className="flex flex-1 gap-3 transition-all duration-300 ease-in-out ml-0"
+        >
+          <div
+            style={{ width: isMobile || !isRightPanelVisible ? '100%' : `${leftWidth}%` }}
+            className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-transparent ${
+              isDragging ? '' : 'transition-[width] duration-300 ease-in-out'
+            } ${isRightPanelVisible ? 'will-change-[width]' : ''}`}
+          >
+            <div className="flex h-14 shrink-0 items-center justify-between bg-transparent px-3">
+              <button
+                onClick={toggleSidebar}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
+                aria-label="Toggle Sidebar"
+              >
+                <MenuIcon className="h-5 w-5" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleCanvasToggle}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                    rightPanelMode === 'canvas' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  }`}
+                  aria-label="Toggle Canvas"
+                >
+                  <PanelRightIcon className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleMemoryToggle}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                    rightPanelMode === 'memory' ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
+                  }`}
+                  aria-label="Toggle Memory Viewer"
+                >
+                  <BrainIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
+              {leftPanel}
+            </div>
+          </div>
+
+          {!isMobile && isRightPanelVisible && (
+            <div
+              className="z-20 flex cursor-col-resize items-center justify-center transition-colors"
+              style={{ width: '16px' }}
+              onMouseDown={() => setIsDragging(true)}
+            >
+              <div className="h-10 w-0.5 rounded-full transition-colors hover:bg-ring-warm/40 bg-ring-warm/0" />
+            </div>
+          )}
+
+          <div
+            className={`min-w-0 flex-1 overflow-hidden rounded-none bg-card transition-all duration-300 ease-in-out md:rounded-2xl ring-1 ring-border-warm ${
+              !isRightPanelVisible ? 'hidden opacity-0' : 'opacity-100'
+            }`}
+          >
+            {rightPanelMode === 'canvas' && rightPanel}
+            {rightPanelMode === 'memory' && memoryPanel}
+          </div>
+        </div>
+
+        {isMobile && sidebarOpen && (
+          <div
+            className="absolute inset-0 z-30 bg-charcoal/20 backdrop-blur-sm"
+            onClick={() => useSidebarStore.getState().closeSidebar()}
+          />
+        )}
+      </div>
+      <StatusBar />
+    </div>
+  );
+};
 </file>
 
 </files>

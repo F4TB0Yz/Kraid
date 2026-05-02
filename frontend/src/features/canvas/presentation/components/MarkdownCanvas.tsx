@@ -70,58 +70,52 @@ const DocumentTab = ({
   </button>
 );
 
-export const MarkdownCanvas = () => {
-  const { documents, activeDocumentId, isLoading, error, loadDocuments, addDocument, removeDocument, setActiveDocument, updateContent, clearError } = useCanvasStore();
+const CanvasDocumentView = ({ documentId }: { documentId: string }) => {
+  const { documents, isLoading, error, loadDocuments, setActiveDocument, updateContent, clearError } = useCanvasStore();
   const { addToast } = useToastStore();
   const [localContent, setLocalContent] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [metrics, setMetrics] = useState({ words: 0, chars: 0, readingTime: 1 });
-  const hasInitialized = useRef(false);
+  const prevDocIdRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeDoc = useMemo(
-    () => documents.find((d) => d.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId],
+    () => documents.find((d) => d.id === documentId) ?? null,
+    [documents, documentId],
   );
+
+  useEffect(() => {
+    setActiveDocument(documentId);
+  }, [documentId, setActiveDocument]);
 
   useEffect(() => {
     void loadDocuments();
   }, [loadDocuments]);
 
   useEffect(() => {
-    if (activeDoc && !hasInitialized.current) {
-      hasInitialized.current = true;
+    if (activeDoc && prevDocIdRef.current !== documentId) {
+      prevDocIdRef.current = documentId;
       setLocalContent(activeDoc.content);
       setMetrics(countMetrics(activeDoc.content));
     }
-  }, [activeDoc]);
-
-  useEffect(() => {
-    const doc = documents.find((d) => d.id === activeDocumentId);
-    if (doc && hasInitialized.current) {
-      setLocalContent(doc.content);
-      setMetrics(countMetrics(doc.content));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDocumentId]);
+  }, [activeDoc, documentId]);
 
   useEffect(() => {
     if (viewMode === 'edit' || viewMode === 'split') {
       textareaRef.current?.focus();
     }
-  }, [viewMode, activeDocumentId]);
+  }, [viewMode, documentId]);
 
   const handleSave = useCallback(async (contentToSave: string, showToast = true) => {
     if (!contentToSave.trim()) return;
     try {
-      if (!activeDocumentId) return;
       await updateContent(contentToSave);
       if (showToast) addToast('Document saved');
     } catch {
       addToast('Failed to save', 'error');
     }
-  }, [activeDocumentId, updateContent, addToast]);
+  }, [updateContent, addToast]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
@@ -141,16 +135,6 @@ export const MarkdownCanvas = () => {
     }
   };
 
-  const handleNewDoc = async () => {
-    await addDocument('Untitled');
-    addToast('New document created');
-  };
-
-  const handleCloseDoc = (id: string) => {
-    removeDocument(id);
-    addToast('Document closed');
-  };
-
   if (isLoading && documents.length === 0) {
     return (
       <div className="flex h-full flex-col bg-bg p-6">
@@ -160,30 +144,16 @@ export const MarkdownCanvas = () => {
     );
   }
 
+  if (!activeDoc) {
+    return (
+      <div className="flex h-full items-center justify-center bg-bg">
+        <p className="text-sm text-olive-gray">Document not found</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col bg-bg text-text">
-      {/* Tabs */}
-      <div className="flex shrink-0 items-center border-b border-border-cream bg-card">
-        <div className="flex flex-1 overflow-x-auto">
-          {documents.map((doc) => (
-            <DocumentTab
-              key={doc.id}
-              doc={doc}
-              isActive={doc.id === activeDocumentId}
-              onSelect={() => setActiveDocument(doc.id)}
-              onClose={() => handleCloseDoc(doc.id)}
-            />
-          ))}
-        </div>
-        <button
-          onClick={handleNewDoc}
-          className="px-3 py-2 text-xs text-olive-gray transition-colors hover:text-accent shrink-0"
-        >
-          + New
-        </button>
-      </div>
-
-      {/* Controls */}
       <div className="flex shrink-0 items-center justify-between border-b border-border-cream px-4 py-2">
         <div className="flex items-center gap-1">
           <button
@@ -218,7 +188,6 @@ export const MarkdownCanvas = () => {
         )}
       </div>
 
-      {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         {(viewMode === 'edit' || viewMode === 'split') && (
           <div className={`flex flex-col ${viewMode === 'split' ? 'w-1/2' : 'flex-1'} border-r border-border-cream`}>
@@ -247,6 +216,67 @@ export const MarkdownCanvas = () => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+export { CanvasDocumentView };
+
+export const MarkdownCanvas = () => {
+  const { documents, activeDocumentId, isLoading, loadDocuments, addDocument, removeDocument, setActiveDocument } = useCanvasStore();
+  const { addToast } = useToastStore();
+
+  useEffect(() => {
+    void loadDocuments();
+  }, [loadDocuments]);
+
+  const handleNewDoc = async () => {
+    await addDocument('Untitled');
+    addToast('New document created');
+  };
+
+  const handleCloseDoc = (id: string) => {
+    removeDocument(id);
+    addToast('Document closed');
+  };
+
+  if (isLoading && documents.length === 0) {
+    return (
+      <div className="flex h-full flex-col bg-bg p-6">
+        <Skeleton className="mb-4 h-6 w-48" />
+        <TextSkeleton lines={5} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-bg text-text">
+      <div className="flex shrink-0 items-center border-b border-border-cream bg-card">
+        <div className="flex flex-1 overflow-x-auto">
+          {documents.map((doc) => (
+            <DocumentTab
+              key={doc.id}
+              doc={doc}
+              isActive={doc.id === activeDocumentId}
+              onSelect={() => setActiveDocument(doc.id)}
+              onClose={() => handleCloseDoc(doc.id)}
+            />
+          ))}
+        </div>
+        <button
+          onClick={handleNewDoc}
+          className="px-3 py-2 text-xs text-olive-gray transition-colors hover:text-accent shrink-0"
+        >
+          + New
+        </button>
+      </div>
+      {activeDocumentId ? (
+        <CanvasDocumentView documentId={activeDocumentId} />
+      ) : (
+        <div className="flex h-full items-center justify-center bg-bg">
+          <p className="text-sm text-olive-gray">Select a document</p>
+        </div>
+      )}
     </div>
   );
 };

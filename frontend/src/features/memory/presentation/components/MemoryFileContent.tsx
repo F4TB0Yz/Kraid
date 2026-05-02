@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -11,7 +11,7 @@ const parseMemoryContent = (rawContent: string) => {
   const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
   const match = rawContent.match(frontmatterRegex);
 
-  if (!match) return { metadata: Record<string, string>, body: rawContent };
+  if (!match) return { metadata: {} as Record<string, string>, body: rawContent };
 
   const metadata: Record<string, string> = {};
   match[1].split('\n').forEach(line => {
@@ -55,7 +55,7 @@ const markdownComponents: Components = {
   },
 };
 
-export const MemoryFileContent = () => {
+export const MemoryFileContent = ({ onBack }: { onBack?: () => void }) => {
   const { files, selectedFileId, selectFile, isEditing, updateFile, setEditing } = useMemoryStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,12 +63,16 @@ export const MemoryFileContent = () => {
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
 
   const [localContent, setLocalContent] = useState(selectedFile?.content ?? '');
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const prevSelectedIdRef = useRef<string | null>(null);
 
-  if (selectedFile?.id !== lastSelectedId) {
-    setLastSelectedId(selectedFile?.id ?? null);
-    setLocalContent(selectedFile?.content ?? '');
-  }
+  useEffect(() => {
+    if (selectedFile && selectedFile.id !== prevSelectedIdRef.current) {
+      prevSelectedIdRef.current = selectedFile.id;
+      setLocalContent(selectedFile.content);
+    }
+  // Only sync when file ID changes, not on every file content update
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile?.id]);
 
   const { metadata, body } = parseMemoryContent(localContent);
 
@@ -109,10 +113,10 @@ export const MemoryFileContent = () => {
   }
 
   return (
-    <div className="flex h-full flex-1 flex-col bg-transparent text-text">
+    <div className="flex min-h-0 flex-1 flex-col bg-transparent text-text">
       <div className="flex flex-col border-b border-border-cream px-6 py-5">
         <button
-          onClick={() => selectFile(null)}
+          onClick={() => onBack ? onBack() : selectFile(null)}
           className="mb-4 self-start rounded px-2 py-1 text-xs font-medium text-olive-gray transition-colors hover:bg-warm-sand hover:text-charcoal-warm"
         >
           ← Back
@@ -127,7 +131,7 @@ export const MemoryFileContent = () => {
         )}
       </div>
 
-      <div className="flex flex-1 items-center justify-between border-b border-border-cream px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-border-cream px-6 py-3">
         <span className="text-xs text-olive-gray">{formatDate(selectedFile.lastModified)}</span>
         <button
           onClick={toggleEdit}

@@ -12,11 +12,11 @@ const FILE_TYPES: Array<{ label: string; value: MemoryFileType | 'all' }> = [
   { label: 'References', value: 'references' },
 ];
 
-const typeLabels: Record<MemoryFileType, string> = {
-  profile: 'Profile',
-  projects: 'Projects',
-  feedback: 'Feedback',
-  references: 'References',
+const typeConfig: Record<MemoryFileType, { label: string; className: string }> = {
+  profile:    { label: 'Profile',    className: 'bg-accent/10 text-accent' },
+  projects:   { label: 'Projects',   className: 'bg-blue-500/10 text-blue-600' },
+  feedback:   { label: 'Feedback',   className: 'bg-amber-500/10 text-amber-700' },
+  references: { label: 'References', className: 'bg-emerald-500/10 text-emerald-700' },
 };
 
 const newTypeOptions: Array<{ label: string; value: MemoryFileType }> = [
@@ -38,8 +38,8 @@ const formatRelativeTime = (date: Date): string => {
   return date.toLocaleDateString([], { dateStyle: 'medium' });
 };
 
-const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
-  const [type, setType] = useState<MemoryFileType>('user');
+export const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: (type: MemoryFileType, title: string) => void }) => {
+  const [type, setType] = useState<MemoryFileType>('profile');
   const [title, setTitle] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -98,7 +98,7 @@ const NewMemoryModal = ({ onClose, onCreate }: { onClose: () => void; onCreate: 
   );
 };
 
-export const MemoryFileList = () => {
+export const MemoryFileList = ({ onSelectFile }: { onSelectFile?: (id: string) => void } = {}) => {
   const { files, selectedFileId, selectFile, isLoading, addFile } = useMemoryStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFileType | 'all'>('all');
@@ -193,25 +193,25 @@ export const MemoryFileList = () => {
             {filteredFiles.map((file) => (
               <button
                 key={file.id}
-                onClick={() => selectFile(file.id)}
-                className={`group flex w-full flex-col items-start gap-1 rounded-xl px-4 py-3 text-left transition-colors ${
+                onClick={() => onSelectFile ? onSelectFile(file.id) : selectFile(file.id)}
+                className={`group flex w-full flex-col items-start gap-2 rounded-xl px-3 py-3 text-left transition-colors ${
                   selectedFileId === file.id
                     ? 'bg-warm-sand shadow-sm ring-1 ring-ring-subtle'
                     : 'hover:bg-warm-sand/50'
                 }`}
               >
                 <div className="flex w-full items-center justify-between gap-2">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-olive-gray">
-                    {typeLabels[file.type]}
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${typeConfig[file.type].className}`}>
+                    {typeConfig[file.type].label}
                   </span>
                   <span className="shrink-0 text-[10px] text-warm-silver">
                     {formatRelativeTime(file.lastModified)}
                   </span>
                 </div>
-                <span className="font-serif text-[15px] font-medium leading-tight text-text">
+                <span className="font-serif text-[14px] font-medium leading-snug text-text">
                   {file.title}
                 </span>
-                <span className="font-mono text-[11px] text-stone-gray truncate max-w-full">
+                <span className="font-mono text-[10px] text-stone-gray/70 truncate max-w-full">
                   {file.filename}
                 </span>
               </button>

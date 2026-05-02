@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Unified Explorer (WorkspacePanel)**: Panel derecho unificado con tabs compartidos para Canvas y Memory. Reemplaza los dos botones separados (Canvas / Memory) por un único `WorkspacePanel` con:
+  - **workspacePanelStore**: Store Zustand que gestiona tabs abiertos (`openTabIds`, `activeTabId`) con `focusTab` (abre panel + añade tab + activa) y `closeTab` (cierra tab; si queda vacío cierra panel). Identificación de tabs vía `tabKey()` compuesta.
+  - **CanvasDocumentView**: Componente extraído de `MarkdownCanvas` que acepta `documentId` como prop. Contiene controles Preview/Edit/Split, textarea con auto-save 1.5s, y metrics footer. `MarkdownCanvas` queda como wrapper thin backward-compat.
+  - **WorkspacePanel**: Componente principal con `WorkspaceTabBar` (tabs con iconos FileIcon/BrainIcon, badge "Agent" para memory, botón cerrar), botón "Consolidate" (exporta canvas al chat como mensaje para que el agente lo guarde en memoria), y `AddTabButton` con dropdown (Canvas Document / Memory File).
+  - **MemoryFileContentView**: Componente inline que llama `selectFile(fileId)` en mount y renderiza `MemoryFileContent` con `onBack` para cerrar el tab.
+  - **Cross-linking**: `@mentions` en `ChatInput` incluyen todos los docs canvas (no solo el activo). Seleccionar un mention abre el panel y activa el tab correspondiente. `CommandPalette` (Cmd+K) también abre tabs al seleccionar canvas docs o memory files.
 - **Saludo proactivo**: Nuevo sistema de bienvenida automática. El backend (`AgentService.stream()`) inyecta un "Prompt de Activación" cuando `messages` está vacío, aprovechando el contexto de usuario ya construido (`build_user_context_block`). El frontend orquesta el saludo vía `triggerGreeting()` en `chatStore` — crea una conversación, envía `messages: []` al backend, y gestiona la respuesta como primer mensaje. `ChatPanel` dispara el saludo al detectar que no hay conversaciones existentes ni activas, ocultando la `WelcomeScreen` en cuanto el stream comienza.
 
 - **User Context System**: Implementado sistema de memoria auto-generada en `.kraid/`. El backend inyecta `PREFERENCES.md` y metadata de memorias en el system prompt (con caché TTLCache de 30 minutos). Frontend envía `session_id` en peticiones de stream para invalidación. Nuevas tools `user_memory_save` y `user_memory_delete` para guardar contexto (profile, feedback, projects, references) proactivamente.
@@ -14,6 +20,10 @@
 
 ### Changed
 
+- **SplitScreenLayout**: Eliminados `rightPanel` y `memoryPanel` props y estado `RightPanelMode`. Dos botones toggle reemplazados por uno solo (`PanelRightIcon`) que llama `togglePanel()`. Panel derecho renderiza `<WorkspacePanel />` directamente.
+- **App.tsx**: Eliminados `rightPanel={<MarkdownCanvas />}` y `memoryPanel={<MemoryViewer />}` del JSX. `useMemoryWatcher` permanece.
+- **MemoryFileContent**: Nueva prop opcional `onBack?: () => void`. Botón "Back" llama `onBack?.()` si definido, sino `selectFile(null)` (fallback para `MemoryViewer`).
+- **NewMemoryModal**: Corregido valor inicial de tipo `'user'` → `'profile'` (bug de tipo). Componente exportado para reuso en `WorkspacePanel`.
 - **SplitScreenLayout refactorizado**: Chat como lienzo base (bg-bg transparente). Sidebar y paneles derecho mantienen estilo tarjeta flotante (bg-card, rounded-2xl, ring-border-warm).
 - **ChatPanel**: Fondo transparente, área de mensajes con max-w-3xl centrado y pb-48 para间距. Input flotante centrado con pointer-events-none wrapper.
 - **StatusBar**: Convertido a elemento flotante (absolute bottom-2 right-4 z-20) con fondo transparente.

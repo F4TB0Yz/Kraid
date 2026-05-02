@@ -168,7 +168,7 @@ No tests configurados aún. Estructura: `backend/tests/`
 
 15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
 
-16. **Tener listo el commit** para subir y pedir confirmacion.
+16. **Preguntar si se quiere subir commit**.
 
 ## Gaps Conocidos
 
