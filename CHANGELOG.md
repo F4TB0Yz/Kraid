@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Arquitectura Robusta para Tools de Agentes**: Sistema defensivo multicapa para el loop agentico.
+  - **ToolResult estructurado**: Reemplazo de `str` por dataclass tipado con `is_error`, `truncated`, `execution_time_ms`, `tool_name`.
+  - **Middleware Pipeline**: 3 middlewares componibles en `ToolRegistry` — CircuitBreaker ( OPEN/CLOSED/HALF_OPEN con threshold configurable y reset automático), Timeout (per-tool via `asyncio.wait_for` con defaults por tool), ResultTruncator (corte en `tool_result_max_chars=12000` con sufijo informativo).
+  - **Loop Detector**: Sliding window de 6 entradas, SHA256 fingerprint de args, detecta 3+ llamadas idénticas. Inyecta system warning en lugar de hard-block.
+  - **Context Compactor**: Compactación determinista al superar 60 mensajes. Preserva system + first user + últimos 20, reemplaza middle con resumen estructural de tools/errors. Hard cap en 80.
+  - **Guardrails (Error Budget)**: `max_consecutive_errors=3` inyecta warning, `max_total_errors=8` hard stop. `graceful_exit_reserve=2` últimas iteraciones sin tools para resumen graceful en vez de error genérico.
+  - **Ejecución Paralela de Tools**: `asyncio.gather` + `Semaphore(max_concurrency=5)` para tool_calls múltiples. Preserva orden de SSE events (todos los start, luego gather, luego todos los end).
+  - **Telemetría**: `IterationMetrics` con tool call records, tool_summary agrupada, log_summetry al finalizar stream. `IterationMetrics.log_summary()` línea estructurada con iteraciones, errores, loops, compactions, exit_reason.
+  - **SSE Events nuevos**: `context_compacted`, `loop_detected`, `circuit_open` (aditivos, backward-compat). `done` event mejorado con `metrics: {iterations, toolCalls, errors, elapsed}`.
+  - **Config extendida**: `max_tool_iterations=25`, timeouts por tool, circuit breaker, loop detection, context management, parallel execution, error budget. Todas configurables vía env vars.
+  - **Archivos nuevos**: `middleware.py`, `circuit_breaker.py`, `result_truncator.py`, `loop_detector.py`, `context/compactor.py`, `guardrails.py`, `telemetry.py`.
+
 - **Context Disambiguation System**: Previene que el agente asocie tareas personales al proyecto activo sin confirmación explícita.
   - **`project` field**: Nuevo campo opcional en frontmatter de archivos. Tasks con `project: null` son independientes. Tasks con `project: "findyourmind"` pertenecen a ese proyecto. Soportado en `FileNode`, `KraidFile`, API REST y tool `file_write`.
   - **`SessionScopeContext`**: Contexto de sesión que rastrea el ámbito actual (proyecto activo vs modo personal). Se inyecta en el system prompt como `<current_scope>`.
