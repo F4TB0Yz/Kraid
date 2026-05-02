@@ -16,11 +16,13 @@ class FileCreate(BaseModel):
     name: str
     type: str
     content: str
+    project: Optional[str] = None
 
 class FileUpdate(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
     content: Optional[str] = None
+    project: Optional[str] = None
 
 def _create_stub_for_link(link_slug: str):
     kraid_dir = get_kraid_dir()
@@ -43,6 +45,7 @@ async def list_files():
                 "slug": node.slug,
                 "name": node.name,
                 "type": node.type,
+                "project": node.project,
                 "lastModified": stat.st_mtime * 1000,
                 "links": node.links,
                 "backlinks": node.backlinks
@@ -79,6 +82,7 @@ async def read_file(slug: str):
         "slug": node.slug,
         "name": node.name,
         "type": node.type,
+        "project": node.project,
         "content": content,
         "tags": [],
         "lastModified": node.filepath.stat().st_mtime * 1000,
@@ -99,8 +103,15 @@ async def create_file(data: FileCreate):
     filepath = (type_dir / f"{data.slug}.md").resolve()
     if not str(filepath).startswith(str(kraid_dir)):
         raise HTTPException(status_code=400, detail="Path traversal")
-        
-    filepath.write_text(data.content, encoding="utf-8")
+
+    # Parse existing frontmatter in content and merge project if provided
+    fm, body = parse_frontmatter(data.content)
+    fm["name"] = data.name
+    fm["type"] = data.type
+    if data.project is not None:
+        fm["project"] = data.project
+    full_content = f"{build_frontmatter(fm)}\n\n{body.strip()}\n"
+    filepath.write_text(full_content, encoding="utf-8")
     
     # Auto-create links
     links = extract_wiki_links(data.content)
@@ -110,10 +121,16 @@ async def create_file(data: FileCreate):
             _create_stub_for_link(link)
             
     # Quick return based on what we just wrote
+    # Parse project from frontmatter if present
+    from app.services.wiki_links import parse_frontmatter
+    fm, _ = parse_frontmatter(data.content)
+    project = fm.get("project") or None
+
     return {
         "slug": data.slug,
         "name": data.name,
         "type": data.type,
+        "project": project,
         "content": data.content,
         "tags": [],
         "lastModified": filepath.stat().st_mtime * 1000,
@@ -132,10 +149,15 @@ async def update_file(slug: str, data: FileUpdate):
     filepath = node.filepath
     
     if data.content is not None:
-        filepath.write_text(data.content, encoding="utf-8")
+        fm, body = parse_frontmatter(data.content)
+        fm["name"] = data.name or node.name
+        fm["type"] = data.type or node.type
+        if data.project is not None:
+            fm["project"] = data.project
+        full_content = f"{build_frontmatter(fm)}\n\n{body.strip()}\n"
+        filepath.write_text(full_content, encoding="utf-8")
         # Auto-create links
         links = extract_wiki_links(data.content)
-        # re-fetch graph or use existing to check
         for link in links:
             if link not in graph and link != slug:
                 _create_stub_for_link(link)
@@ -144,10 +166,14 @@ async def update_file(slug: str, data: FileUpdate):
     content = filepath.read_text(encoding="utf-8")
     links = extract_wiki_links(content)
     
+    fm, _ = parse_frontmatter(content)
+    project = fm.get("project") or None
+
     return {
         "slug": node.slug,
         "name": data.name or node.name,
         "type": node.type,
+        "project": project,
         "content": content,
         "tags": [],
         "lastModified": filepath.stat().st_mtime * 1000,

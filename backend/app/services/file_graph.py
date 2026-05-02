@@ -12,6 +12,7 @@ class FileNode(BaseModel):
     slug: str
     name: str
     type: str
+    project: Optional[str] = None
     links: List[str]
     backlinks: List[str]
     filepath: Path
@@ -52,6 +53,7 @@ class FileGraph:
                 
                 fm, _ = parse_frontmatter(content)
                 name = fm.get("name", slug)
+                project = fm.get("project") or None
                 links = extract_wiki_links(content)
                 
                 if slug not in graph:
@@ -59,6 +61,7 @@ class FileGraph:
                         slug=slug,
                         name=name,
                         type=ftype,
+                        project=project,
                         links=links,
                         backlinks=[],
                         filepath=filepath

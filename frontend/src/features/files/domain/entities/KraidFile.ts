@@ -4,6 +4,7 @@ export interface KraidFile {
   slug: string;
   name: string;
   type: FileType;
+  project?: string;
   content: string;
   tags: string[];
   lastModified: Date;

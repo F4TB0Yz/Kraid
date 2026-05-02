@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.agent.tools import tool_registry
 from app.agent.context.user_context import build_user_context_block, build_context_snapshot
+from app.agent.context.scope_context import scope_context
 from app.agent.prompts import DOMAIN_AGENT_PROMPT
 
 EVENT_TOOL_CALL_START = "tool_call_start"
@@ -26,19 +27,28 @@ BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
 
 AUTO_MEMORY_INSTRUCTIONS = """
 Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
-Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'file_write' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+Evalúa si la información que el usuario comparte amerita ser persistida. No todo merece guardarse.
 
-Reglas para guardar memoria:
-- Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
-- Usa el 'type' correcto:
+Cuándo SÍ considerar guardar:
+- Hechos permanentes o de larga duración sobre el usuario (ej: "uso tabs", "soy dev senior", "no uses emojis").
+- Preferencias de comportamiento explícitamente comunicadas.
+- Correcciones validadas o feedback confirmado por el usuario.
+
+Cuándo NO guardar:
+- Temas personales no relacionados con ningún proyecto o perfil del usuario.
+- Información efímera o conversacional sin valor duradero.
+- Tareas que el usuario menciona de paso sin estructura clara.
+- Tokens de API o secretos.
+- Conversaciones enteras o código fuente largo.
+- Estados temporales (ej: "estoy reiniciando el server").
+
+Si decides guardar, usa el 'type' correcto:
   - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
-  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
-  - 'project': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
+  - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas.
+  - 'project': Iniciativas activas, contexto que trascienda una sesión.
   - 'reference': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
-- Qué NO guardar:
-  - Tokens de API o secretos.
-  - Estados temporales (ej: "estoy reiniciando el server").
-  - Conversaciones enteras o código fuente largo.
+
+Si no estás seguro si algo amerita guardarse, mejor omítelo. El usuario pedirá guardar si lo considera importante.
 """
 
 class AgentService:
@@ -63,7 +73,8 @@ class AgentService:
         user_context_block = build_user_context_block(session_id)
         today = datetime.date.today().isoformat()
         org_snapshot = build_context_snapshot()
-        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
+        current_scope = scope_context.get_scope_block(session_id) if session_id else "<current_scope>\nÁmbito: No especificado (sesión anónima)\n</current_scope>"
+        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot, current_scope=current_scope)
 
         system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
 
@@ -183,7 +194,7 @@ class AgentService:
                         fn_args = {"_raw": fn_args_str}
                 
                 # Inject session_id for tools that need it for cache invalidation
-                if fn_name in ("file_write", "file_delete", "ask_user") and session_id is not None:
+                if fn_name in ("file_write", "file_delete", "ask_user", "set_scope") and session_id is not None:
                     fn_args["session_id"] = session_id
                 
                 tc_id = tc["id"]

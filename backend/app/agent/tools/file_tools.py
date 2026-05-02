@@ -12,10 +12,33 @@ async def file_write_action(
     type: str,
     content: str,
     mode: str = "create",
+    project: Optional[str] = None,
     session_id: Optional[str] = None
 ) -> str:
     if type not in FILE_TYPES:
         return f"Error: tipo '{type}' inválido. Debe ser uno de {FILE_TYPES}."
+
+    # Validate project references
+    warnings: list[str] = []
+    if project is not None:
+        graph = file_graph_instance.get_graph()
+        if project and project not in graph:
+            warnings.append(
+                f"ADVERTENCIA: El proyecto '{project}' no existe en el sistema. "
+                "El campo 'project' se guardará en frontmatter, pero el proyecto destino no se ha creado aún."
+            )
+
+    # Validate content wiki-links to projects
+    content_links = extract_wiki_links(content)
+    graph = file_graph_instance.get_graph()
+    for link in content_links:
+        if link in graph and graph[link].type == "project" and link != project:
+            warnings.append(
+                f"AVISO: El contenido referencia [[{link}]] (un proyecto existente), "
+                f"pero el campo 'project' no está configurado para este archivo. "
+                f"Si este archivo pertenece a ese proyecto, usa project=\"{link}\"."
+            )
+            break
 
     kraid_dir = get_kraid_dir()
     type_dir = kraid_dir / type
@@ -30,24 +53,27 @@ async def file_write_action(
         existing_fm, existing_body = parse_frontmatter(existing_content)
         
         merged_fm = {**existing_fm, "name": name, "type": type}
+        if project is not None:
+            merged_fm["project"] = project
+        elif "project" in merged_fm and project is None:
+            merged_fm["project"] = ""
         final_body = content if content.strip() else existing_body
     else:
         merged_fm = {"name": name, "type": type}
+        if project is not None:
+            merged_fm["project"] = project
         final_body = content
 
     fm_str = build_frontmatter(merged_fm)
     full_content = f"{fm_str}\n\n{final_body.strip()}\n"
     filepath.write_text(full_content, encoding="utf-8")
 
-    # Stubs
-    links = extract_wiki_links(full_content)
-    graph = file_graph_instance.get_graph()
-    note_dir = kraid_dir / "note"
-    note_dir.mkdir(parents=True, exist_ok=True)
-    for link in links:
+    # Stubs — skip links that are existing projects to prevent noise
+    for link in content_links:
         if link not in graph and link != slug:
-            l_path = note_dir / f"{link}.md"
+            l_path = get_kraid_dir() / "note" / f"{link}.md"
             if not l_path.exists():
+                l_path.parent.mkdir(parents=True, exist_ok=True)
                 l_fm = build_frontmatter({"name": link, "type": "note"})
                 l_path.write_text(f"{l_fm}\n\n", encoding="utf-8")
 
@@ -55,7 +81,10 @@ async def file_write_action(
         invalidate(session_id)
 
     action_label = "actualizado" if mode == "update" else "creado"
-    return f"Archivo {action_label}: {type}/{slug}.md"
+    result = f"Archivo {action_label}: {type}/{slug}.md"
+    if warnings:
+        result += "\n" + "\n".join(warnings)
+    return result
 
 file_write = Tool(
     name="file_write",
@@ -71,7 +100,8 @@ file_write = Tool(
                 "description": "Tipo de entidad."
             },
             "content": {"type": "string", "description": "Cuerpo Markdown. Usa [[slug]] para referenciar otros archivos."},
-            "mode": {"type": "string", "enum": ["create", "update"], "description": "create (sobrescribe) o update (combina metadatos)."}
+            "mode": {"type": "string", "enum": ["create", "update"], "description": "create (sobrescribe) o update (combina metadatos)."},
+            "project": {"type": "string", "description": "Slug del proyecto al que pertenece (opcional). Si se omite, la entidad es independiente."}
         },
         "required": ["slug", "name", "type", "content"]
     },
@@ -90,7 +120,8 @@ async def file_list_action(type: Optional[str] = None) -> str:
         
         link_str = f", links={len(node.links)}" if node.links else ""
         backlink_str = f", backlinks={len(node.backlinks)}" if node.backlinks else ""
-        lines.append(f"- [{node.type}] {slug} (name='{node.name}'{link_str}{backlink_str})")
+        project_str = f", project={node.project}" if node.project else ""
+        lines.append(f"- [{node.type}] {slug} (name='{node.name}'{project_str}{link_str}{backlink_str})")
         
     if not lines:
         return f"No hay archivos del tipo {type}."
@@ -120,7 +151,8 @@ async def file_read_action(slug: str) -> str:
         
     content = node.filepath.read_text(encoding="utf-8")
     
-    metadata = f"--- METADATA ---\nSlug: {node.slug}\nName: {node.name}\nType: {node.type}\nLinks: {', '.join(node.links)}\nBacklinks: {', '.join(node.backlinks)}\n----------------\n\n"
+    project_str = f"\nProject: {node.project}" if node.project else ""
+    metadata = f"--- METADATA ---\nSlug: {node.slug}\nName: {node.name}\nType: {node.type}{project_str}\nLinks: {', '.join(node.links)}\nBacklinks: {', '.join(node.backlinks)}\n----------------\n\n"
     return metadata + content
 
 file_read = Tool(

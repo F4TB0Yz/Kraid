@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Context Disambiguation System**: Previene que el agente asocie tareas personales al proyecto activo sin confirmación explícita.
+  - **`project` field**: Nuevo campo opcional en frontmatter de archivos. Tasks con `project: null` son independientes. Tasks con `project: "findyourmind"` pertenecen a ese proyecto. Soportado en `FileNode`, `KraidFile`, API REST y tool `file_write`.
+  - **`SessionScopeContext`**: Contexto de sesión que rastrea el ámbito actual (proyecto activo vs modo personal). Se inyecta en el system prompt como `<current_scope>`.
+  - **`set_scope` tool**: Nueva herramienta para que el agente cambie explícitamente entre modo personal y modo proyecto. Valida que el proyecto exista antes de asignar.
+  - **Prompt disambiguation rules**: Nuevas reglas en `DOMAIN_AGENT_PROMPT` que obligan al agente a preguntar antes de vincular, asumir tareas como independientes por defecto, y no mezclar contextos.
+  - **`AUTO_MEMORY_INSTRUCTIONS` suavizadas**: Cambiado de "DEBES guardar proactivamente" a "Evalúa si amerita guardarse". Instrucciones explícitas de qué NO guardar (temas personales no relacionados, info efímera).
+  - **Validación en `file_write`**: Si una task referencia `[[proyecto]]` en contenido sin asignar `project`, emite advertencia. Si se asigna `project` a un slug que no existe, emite advertencia.
+
 - **Unified Explorer (WorkspacePanel)**: Panel derecho unificado con tabs compartidos para Canvas y Memory. Reemplaza los dos botones separados (Canvas / Memory) por un único `WorkspacePanel` con:
   - **workspacePanelStore**: Store Zustand que gestiona tabs abiertos (`openTabIds`, `activeTabId`) con `focusTab` (abre panel + añade tab + activa) y `closeTab` (cierra tab; si queda vacío cierra panel). Identificación de tabs vía `tabKey()` compuesta.
   - **CanvasDocumentView**: Componente extraído de `MarkdownCanvas` que acepta `documentId` como prop. Contiene controles Preview/Edit/Split, textarea con auto-save 1.5s, y metrics footer. `MarkdownCanvas` queda como wrapper thin backward-compat.
