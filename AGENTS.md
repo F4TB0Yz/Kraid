@@ -168,6 +168,8 @@ No tests configurados aún. Estructura: `backend/tests/`
 
 15. **Documentar todos los cambios** en el archivo `CHANGELOG.md`
 
+16. **Tener listo el commit** para subir y pedir confirmacion.
+
 ## Gaps Conocidos
 
 - `package.json` no tiene: `zustand`, `react-markdown`, `lucide-react`, `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `tailwindcss`, `@tailwindcss/typography`, ESLint plugins
