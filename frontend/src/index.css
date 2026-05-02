@@ -246,6 +246,26 @@ html {
   --tw-prose-td-borders: var(--border-cream);
 }
 
+/* Spin slow for cog icon */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Shimmer opacity for thinking indicator */
+@keyframes shimmer-opacity {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.animate-shimmer {
+  animation: shimmer-opacity var(--motion-slow) ease-in-out infinite;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

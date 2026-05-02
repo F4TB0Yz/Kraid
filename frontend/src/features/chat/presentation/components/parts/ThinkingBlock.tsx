@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BrainIcon } from '../../../../../core/presentation/components/icons';
 
 interface ThinkingBlockProps {
   content: string;
@@ -11,20 +12,20 @@ export const ThinkingBlock = ({ content, duration }: ThinkingBlockProps) => {
   const collapsed = collapsedOverride ?? !isStreaming;
 
   return (
-    <div className="my-2">
+    <div className="my-3 flex flex-col gap-1.5">
       <button
         onClick={() => setCollapsedOverride(!collapsed)}
-        className="flex items-center gap-2 text-xs text-olive-gray transition-colors hover:text-charcoal-warm"
+        className="group flex w-max items-center gap-2 rounded-full px-2 py-1 text-xs transition-colors hover:bg-warm-sand"
       >
-        <span className="text-warm-silver">{collapsed ? '▶' : '▼'}</span>
-        <span>
-          Thought
-          {duration != null && duration > 0 ? ` for ${duration.toFixed(1)}s` : '...'}
+        <BrainIcon className={`h-3.5 w-3.5 text-warm-silver transition-colors group-hover:text-charcoal-warm ${isStreaming ? 'animate-shimmer' : ''}`} />
+        <span className={`font-serif italic text-olive-gray ${isStreaming ? 'animate-fade-in' : ''}`}>
+          {duration != null && duration > 0 ? `Reflexionó por ${duration.toFixed(1)}s` : 'Analizando contexto...'}
         </span>
       </button>
+
       {!collapsed && content && (
-        <div className="mt-1 border-l-2 border-border-warm pl-3">
-          <p className="text-sm leading-relaxed text-olive-gray">{content}</p>
+        <div className="ml-3 animate-scale-in border-l-[1.5px] border-border-cream pl-4 py-1">
+          <p className="text-sm leading-relaxed text-stone-gray">{content}</p>
         </div>
       )}
     </div>

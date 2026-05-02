@@ -26,6 +26,8 @@
 - **NewMemoryModal**: Corregido valor inicial de tipo `'user'` → `'profile'` (bug de tipo). Componente exportado para reuso en `WorkspacePanel`.
 - **SplitScreenLayout refactorizado**: Chat como lienzo base (bg-bg transparente). Sidebar y paneles derecho mantienen estilo tarjeta flotante (bg-card, rounded-2xl, ring-border-warm).
 - **ChatPanel**: Fondo transparente, área de mensajes con max-w-3xl centrado y pb-48 para间距. Input flotante centrado con pointer-events-none wrapper.
+- **ThinkingBlock**: Refactorizado con BrainIcon, tipografía serif italic, shimmer suave de opacidad (animate-shimmer) reemplazando animate-pulse. Auto-expandido durante streaming, auto-colapsa al finalizar.
+- **ToolCallBlock**: Rediseñado con traducción humana de tool names (TOOL_LABELS), iconos semánticos sin fondos tintados, ring-1 ring-border-cream en lugar de bordes, collapsible <pre> con Anthropic Mono. CogIcon gira (animate-spin-slow) durante ejecución.
 - **StatusBar**: Convertido a elemento flotante (absolute bottom-2 right-4 z-20) con fondo transparente.
 - **Viewport dinámico**: `SplitScreenLayout` usa `h-dvh` (dynamic viewport height) en vez de `h-screen`. Evita que toolbars móviles recorten la interfaz inferior al recalcular altura real utilizable.
 - **backend/.env.example**: Comentario indicando que `OPENAI_MODEL` es solo default; usuario cambia desde UI.
