@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type AgentStatus = 'idle' | 'thinking' | 'running_tool' | 'streaming';
+export type AgentStatus = 'idle' | 'thinking' | 'running_tool' | 'streaming' | 'waiting_user';
 
 interface AgentStatusState {
   status: AgentStatus;

@@ -7,6 +7,7 @@ import { ChatInput } from './ChatInput';
 import { TypingIndicator } from './TypingIndicator';
 import { CogIcon, KraidIcon, ArrowDownIcon } from '../../../../core/presentation/components/icons';
 import { Avatar } from '../../../../core/presentation/components/Avatar';
+import { QuestionOverlay } from './QuestionOverlay';
 
 const SUGGESTIONS = [
   "Explain how this code works",
@@ -179,6 +180,9 @@ export const ChatPanel = () => {
           </button>
         </div>
       )}
+
+      {/* Question Overlay */}
+      <QuestionOverlay />
 
       {/* Input */}
       <div className="absolute bottom-6 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">

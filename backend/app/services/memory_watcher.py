@@ -5,6 +5,7 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from app.agent.context.user_context import get_kraid_dir
+from app.services.file_graph import FILE_TYPES
 
 logger = logging.getLogger("kraid.memory_watcher")
 
@@ -30,23 +31,21 @@ class MemoryEventHandler(FileSystemEventHandler):
         try:
             kraid_dir = get_kraid_dir()
             path = Path(src_path)
-            # Must be within a valid type directory: profile, feedback, projects, references
             rel_path = path.relative_to(kraid_dir)
             if len(rel_path.parts) == 2:
                 mem_type = rel_path.parts[0]
-                if mem_type in {"profile", "feedback", "projects", "references"}:
+                if mem_type in FILE_TYPES:
                     event_data = {
-                        "event": "memory_changed",
+                        "event": "file_changed",
                         "data": {
                             "type": mem_type,
-                            "filename": rel_path.parts[1],
+                            "slug": path.stem,
                             "action": action
                         }
                     }
-                    # Run coroutine threadsafe
                     asyncio.run_coroutine_threadsafe(self.queue.put(event_data), self.loop)
         except ValueError:
-            pass # Not relative to kraid_dir
+            pass
 
 class MemoryWatcher:
     def __init__(self):
@@ -60,7 +59,7 @@ class MemoryWatcher:
             return
             
         self.kraid_dir.mkdir(parents=True, exist_ok=True)
-        for t in ["profile", "feedback", "projects", "references"]:
+        for t in FILE_TYPES:
             (self.kraid_dir / t).mkdir(parents=True, exist_ok=True)
             
         self.queue = asyncio.Queue()
@@ -69,14 +68,14 @@ class MemoryWatcher:
         self.observer.schedule(event_handler, str(self.kraid_dir), recursive=True)
         self.observer.start()
         self.is_running = True
-        logger.info(f"Memory watcher started on {self.kraid_dir}")
+        logger.info(f"File watcher started on {self.kraid_dir}")
 
     def stop(self):
         if self.is_running:
             self.observer.stop()
             self.observer.join()
             self.is_running = False
-            logger.info("Memory watcher stopped")
+            logger.info("File watcher stopped")
 
     async def event_generator(self):
         if not self.is_running:

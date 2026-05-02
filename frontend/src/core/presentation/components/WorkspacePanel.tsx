@@ -1,28 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorkspacePanelStore, type WorkspaceTabId, tabKey } from '../store/workspacePanelStore';
 import { useCanvasStore } from '../../../features/canvas/presentation/store/canvasStore';
-import { useMemoryStore } from '../../../features/memory/presentation/store/memoryStore';
+import { useFileStore } from '../../../features/files/presentation/store/fileStore';
 import { useChatStore } from '../../../features/chat/presentation/store/chatStore';
 import { CanvasDocumentView } from '../../../features/canvas/presentation/components/MarkdownCanvas';
-import { MemoryFileContent } from '../../../features/memory/presentation/components/MemoryFileContent';
-import { MemoryFileList } from '../../../features/memory/presentation/components/MemoryFileList';
+import { FileContent } from '../../../features/files/presentation/components/FileContent';
+import { FileExplorer } from '../../../features/files/presentation/components/FileExplorer';
 import { FileIcon, BrainIcon, CloseIcon, PlusIcon } from './icons';
-
-const MemoryExplorerView = ({ onSelectFile }: { onSelectFile: (id: string) => void }) => (
-  <div className="flex h-full w-full overflow-hidden">
-    <MemoryFileList onSelectFile={onSelectFile} />
-  </div>
-);
-
-const MemoryFileContentView = ({ fileId, onBack }: { fileId: string; onBack: () => void }) => {
-  const selectFile = useMemoryStore((s) => s.selectFile);
-
-  useEffect(() => {
-    selectFile(fileId);
-  }, [fileId, selectFile]);
-
-  return <MemoryFileContent onBack={onBack} />;
-};
 
 const WorkspaceTab = ({
   tabId,
@@ -36,17 +20,17 @@ const WorkspaceTab = ({
   onClose: () => void;
 }) => {
   const canvasDocs = useCanvasStore((s) => s.documents);
-  const memoryFiles = useMemoryStore((s) => s.files);
+  const files = useFileStore((s) => s.files);
 
   const title =
     tabId.kind === 'canvas'
       ? canvasDocs.find((d) => d.id === tabId.documentId)?.title ?? 'Untitled'
-      : tabId.kind === 'memory'
-      ? memoryFiles.find((f) => f.id === tabId.fileId)?.title ?? 'Untitled'
-      : 'Memory';
+      : tabId.kind === 'file'
+      ? files.find((f) => f.slug === tabId.slug)?.name ?? tabId.slug
+      : 'Explorer';
 
   const Icon = tabId.kind === 'canvas' ? FileIcon : BrainIcon;
-  const isMemory = tabId.kind === 'memory' || tabId.kind === 'memory-explorer';
+  const isMemory = tabId.kind === 'file' || tabId.kind === 'file-explorer';
 
   return (
     <div
@@ -116,7 +100,7 @@ export const WorkspacePanel = () => {
 
   const handleMemoryFile = useCallback(() => {
     setShowDropdown(false);
-    focusTab({ kind: 'memory-explorer' });
+    focusTab({ kind: 'file-explorer' });
   }, [focusTab]);
 
 
@@ -180,7 +164,7 @@ export const WorkspacePanel = () => {
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-xs text-charcoal-warm transition-colors hover:bg-warm-sand rounded-b-xl"
               >
                 <BrainIcon className="h-3.5 w-3.5" />
-                Memory File
+                Memory Explorer
               </button>
             </div>
           )}
@@ -194,16 +178,14 @@ export const WorkspacePanel = () => {
               key={`canvas:${activeTabId.documentId}`}
               documentId={activeTabId.documentId}
             />
-          ) : activeTabId.kind === 'memory' ? (
-            <MemoryFileContentView
-              key={`memory:${activeTabId.fileId}`}
-              fileId={activeTabId.fileId}
-              onBack={() => closeTab(activeTabId)}
+          ) : activeTabId.kind === 'file' ? (
+            <FileContent
+              key={`file:${activeTabId.slug}`}
+              slug={activeTabId.slug}
             />
           ) : (
-            <MemoryExplorerView
-              key="memory-explorer"
-              onSelectFile={(id) => focusTab({ kind: 'memory', fileId: id })}
+            <FileExplorer
+              key="file-explorer"
             />
           )
         ) : (

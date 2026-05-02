@@ -12,6 +12,7 @@ export class HttpStreamingRepository implements StreamingRepository {
     messages: { role: string; content: string }[],
     model?: string,
     sessionId?: string,
+    signal?: AbortSignal,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { messages };
     if (model) {
@@ -25,6 +26,7 @@ export class HttpStreamingRepository implements StreamingRepository {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {

@@ -6,6 +6,7 @@ const STATUS_DOT: Record<string, string> = {
   thinking: 'bg-amber-500 animate-pulse',
   running_tool: 'bg-blue-500 animate-pulse',
   streaming: 'bg-accent animate-pulse',
+  waiting_user: 'bg-accent animate-pulse',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -13,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
   thinking: 'Thinking',
   running_tool: 'Running tool',
   streaming: 'Streaming',
+  waiting_user: 'Waiting for answer',
 };
 
 export const StatusBar = () => {

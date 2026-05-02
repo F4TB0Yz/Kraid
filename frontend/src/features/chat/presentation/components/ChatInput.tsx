@@ -6,7 +6,8 @@ import { MentionMenu, type MentionItem } from './composer/MentionMenu';
 import { ContextChips } from './composer/ContextChips';
 import { AttachmentTray, type Attachment } from './composer/AttachmentTray';
 import { useCanvasStore } from '../../../canvas/presentation/store/canvasStore';
-import { useMemoryStore } from '../../../memory/presentation/store/memoryStore';
+import { useFileStore } from '../../../files/presentation/store/fileStore';
+import { useChatStore } from '../store/chatStore';
 import { useWorkspacePanelStore } from '../../../../core/presentation/store/workspacePanelStore';
 
 interface ChatInputProps {
@@ -24,7 +25,8 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { documents: canvasDocs } = useCanvasStore();
-  const { files: memoryFiles } = useMemoryStore();
+  const { files } = useFileStore();
+  const isStreaming = useChatStore(s => s.isStreaming);
 
   const slash = useSlashCommands(value, cursorPos);
 
@@ -47,11 +49,11 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
     for (const doc of canvasDocs) {
       result.push({ id: `doc-${doc.id}`, label: doc.title, type: 'canvas' });
     }
-    for (const f of memoryFiles) {
-      result.push({ id: `mem-${f.id}`, label: f.filename, type: 'memory' });
+    for (const f of files) {
+      result.push({ id: `file-${f.slug}`, label: f.name || f.slug || 'Untitled', type: 'memory' });
     }
     return result;
-  }, [canvasDocs, memoryFiles]);
+  }, [canvasDocs, files]);
 
   const filteredMentionItems = useMemo(() => {
     if (!mentionState.query) return mentionItems;
@@ -103,7 +105,7 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
       if (item.type === 'canvas') {
         useWorkspacePanelStore.getState().focusTab({ kind: 'canvas', documentId: item.id.replace('doc-', '') });
       } else {
-        useWorkspacePanelStore.getState().focusTab({ kind: 'memory', fileId: item.id.replace('mem-', '') });
+        useWorkspacePanelStore.getState().focusTab({ kind: 'file', slug: item.id.replace('file-', '') });
       }
     },
     [replaceText, mentionState],
@@ -242,13 +244,22 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
             {charCount > 0 && (
               <span className="text-xs text-warm-silver/70">{charCount}</span>
             )}
-            <button
-              onClick={() => void handleSubmit()}
-              disabled={!value.trim() || isLoading}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-terracotta text-ivory transition-colors hover:bg-coral disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <SendIcon className="h-3.5 w-3.5" />
-            </button>
+            {isStreaming || isLoading ? (
+              <button
+                onClick={() => useChatStore.getState().stopGeneration()}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/20 text-rose-500 transition-colors hover:bg-rose-500/30"
+              >
+                <div className="h-2.5 w-2.5 rounded-sm bg-current" />
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleSubmit()}
+                disabled={!value.trim()}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-terracotta text-ivory transition-colors hover:bg-coral disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <SendIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>

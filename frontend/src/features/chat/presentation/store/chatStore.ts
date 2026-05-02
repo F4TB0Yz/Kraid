@@ -7,16 +7,29 @@ import { useAgentStatusStore } from '../../../../core/presentation/store/agentSt
 import { useSettingsStore } from '../../../../core/presentation/store/settingsStore';
 import { httpStreamingRepository } from '../../data/repositories/HttpStreamingRepository';
 import { eventsToParts } from '../../data/repositories/StreamingRepository';
+import { API_BASE } from '../../../../core/config';
+
+export interface PendingQuestion {
+  toolCallId: string;
+  question: string;
+  type: 'single_choice' | 'multiple_choice' | 'free_text';
+  options?: string[];
+  placeholder?: string;
+}
 
 interface ChatState {
   isLoading: boolean;
   isStreaming: boolean;
   streamingMessageId: string | null;
   streamingParts: MessagePart[];
+  pendingQuestion: PendingQuestion | null;
   error: string | null;
+  abortController: AbortController | null;
   sendMessage: (content: string) => Promise<void>;
   triggerGreeting: () => Promise<void>;
+  answerQuestion: (answer: string) => Promise<void>;
   completeStreaming: () => void;
+  stopGeneration: () => void;
   clearError: () => void;
 }
 
@@ -25,10 +38,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   streamingMessageId: null,
   streamingParts: [],
+  pendingQuestion: null,
   error: null,
+  abortController: null,
+
+  stopGeneration: () => {
+    const { abortController } = get();
+    if (abortController) {
+      abortController.abort();
+      set({
+        abortController: null,
+        isStreaming: false,
+        isLoading: false,
+        pendingQuestion: null,
+      });
+      useAgentStatusStore.getState().setStatus('idle');
+    }
+  },
 
   sendMessage: async (content: string) => {
     set({ isLoading: true, error: null });
+    const abortController = new AbortController();
+    set({ abortController });
     try {
       const convStore = useConversationStore.getState();
 
@@ -78,7 +109,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
 
       const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
-      const stream = httpStreamingRepository.stream(apiMessages, selectedModel, currentConvId);
+      const stream = httpStreamingRepository.stream(apiMessages, selectedModel, currentConvId, abortController.signal);
       for await (const event of stream) {
         events.push(event);
 
@@ -90,10 +121,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
           case 'tool_call_start': {
             useAgentStatusStore.getState().setStatus('running_tool');
             useAgentStatusStore.getState().setActiveTool(event.tool);
+            if (event.tool === 'ask_user') {
+              const input = event.input as { question?: string; type?: string; options?: string[]; placeholder?: string };
+              set({
+                pendingQuestion: {
+                  toolCallId: event.toolCallId,
+                  question: input.question ?? '',
+                  type: (input.type as PendingQuestion['type']) ?? 'free_text',
+                  options: input.options,
+                  placeholder: input.placeholder,
+                },
+              });
+              useAgentStatusStore.getState().setStatus('waiting_user');
+            }
             break;
           }
           case 'tool_call_end': {
             useAgentStatusStore.getState().setActiveTool(null);
+            if (get().pendingQuestion?.toolCallId === event.toolCallId) {
+              set({ pendingQuestion: null });
+            }
             break;
           }
           case 'text_delta': {
@@ -140,12 +187,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isStreaming: false,
         streamingMessageId: null,
         streamingParts: [],
+        abortController: null,
       });
 
       useAgentStatusStore.getState().setStatus('idle');
-    } catch {
-      set({ error: 'Failed to send message', isLoading: false, isStreaming: false });
-      useAgentStatusStore.getState().setStatus('idle');
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        console.log('Stream aborted by user');
+      } else {
+        set({ error: 'Failed to send message', isLoading: false, isStreaming: false, abortController: null });
+        useAgentStatusStore.getState().setStatus('idle');
+      }
     }
   },
 
@@ -153,6 +205,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().isStreaming) return;
 
     set({ isLoading: true, error: null });
+    const abortController = new AbortController();
+    set({ abortController });
     try {
       const convStore = useConversationStore.getState();
 
@@ -188,7 +242,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
       const events: import('../../data/repositories/StreamingRepository').StreamEvent[] = [];
 
-      const stream = httpStreamingRepository.stream([], selectedModel, newId);
+      const stream = httpStreamingRepository.stream([], selectedModel, newId, abortController.signal);
       for await (const event of stream) {
         events.push(event);
 
@@ -199,9 +253,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
           case 'tool_call_start':
             useAgentStatusStore.getState().setStatus('running_tool');
             useAgentStatusStore.getState().setActiveTool(event.tool);
+            if (event.tool === 'ask_user') {
+              const input = event.input as { question?: string; type?: string; options?: string[]; placeholder?: string };
+              set({
+                pendingQuestion: {
+                  toolCallId: event.toolCallId,
+                  question: input.question ?? '',
+                  type: (input.type as PendingQuestion['type']) ?? 'free_text',
+                  options: input.options,
+                  placeholder: input.placeholder,
+                },
+              });
+              useAgentStatusStore.getState().setStatus('waiting_user');
+            }
             break;
           case 'tool_call_end':
             useAgentStatusStore.getState().setActiveTool(null);
+            if (get().pendingQuestion?.toolCallId === event.toolCallId) {
+              set({ pendingQuestion: null });
+            }
             break;
           case 'text_delta':
             useAgentStatusStore.getState().setStatus('streaming');
@@ -245,12 +315,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isStreaming: false,
         streamingMessageId: null,
         streamingParts: [],
+        abortController: null,
       });
 
       useAgentStatusStore.getState().setStatus('idle');
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        console.log('Greeting stream aborted by user');
+      } else {
+        set({ error: 'Failed to trigger greeting', isLoading: false, isStreaming: false, abortController: null });
+        useAgentStatusStore.getState().setStatus('idle');
+      }
+    }
+  },
+
+  answerQuestion: async (answer: string) => {
+    const convStore = useConversationStore.getState();
+    const sessionId = convStore.activeConversationId;
+    if (!sessionId) return;
+
+    set({ pendingQuestion: null });
+
+    try {
+      await fetch(`${API_BASE}/api/chat/answer/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer }),
+      });
     } catch {
-      set({ error: 'Failed to trigger greeting', isLoading: false, isStreaming: false });
-      useAgentStatusStore.getState().setStatus('idle');
+      set({ error: 'Failed to submit answer' });
     }
   },
 
@@ -259,6 +352,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isStreaming: false,
       streamingMessageId: null,
       streamingParts: [],
+      pendingQuestion: null,
     }),
 
   clearError: () => set({ error: null }),

@@ -54,6 +54,20 @@ def _extract_frontmatter(filepath: Path) -> str:
     except Exception as e:
         return f"- [{filepath.stem}]({filepath.parent.name}/{filepath.name}) - Error reading"
 
+def build_context_snapshot() -> str:
+    # Inline import to avoid circular dependency if file_graph imports user_context
+    from app.services.file_graph import file_graph_instance
+    graph = file_graph_instance.get_graph()
+    if not graph:
+        return "<context_snapshot>\nNo hay entidades guardadas aún.\n</context_snapshot>"
+
+    entries = []
+    for slug, node in sorted(graph.items(), key=lambda x: (x[1].type, x[1].name)):
+        entries.append(f"- [{node.type}] {slug} (name={node.name})")
+
+    body = "\n".join(entries)
+    return f"<context_snapshot>\n{body}\n</context_snapshot>"
+
 def build_user_context_block(session_id: Optional[str] = None) -> str:
     kraid_dir = get_kraid_dir()
     if not kraid_dir.exists():
@@ -75,7 +89,7 @@ def build_user_context_block(session_id: Optional[str] = None) -> str:
     else:
         # Fallback to generating index
         lines.append("## Kraid Memories")
-        for type_dir in ["profile", "feedback", "projects", "references"]:
+        for type_dir in ["profile", "project", "task", "note", "reference", "feedback"]:
             tdir = kraid_dir / type_dir
             if tdir.exists():
                 lines.append(f"\n### {type_dir.capitalize()}")

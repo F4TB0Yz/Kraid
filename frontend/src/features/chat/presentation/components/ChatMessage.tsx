@@ -14,6 +14,7 @@ import { useCanvasStore } from '../../../canvas/presentation/store/canvasStore';
 import { ToolCallBlock } from './parts/ToolCallBlock';
 import { ThinkingBlock } from './parts/ThinkingBlock';
 import { CitationChip } from './parts/CitationChip';
+import { QuestionBlock } from './parts/QuestionBlock';
 
 interface ChatMessageProps {
   message: Message;
@@ -81,6 +82,9 @@ const markdownComponents: Components = {
 const PartRenderer = ({ part }: { part: MessagePart }) => {
   switch (part.type) {
     case 'tool_call':
+      if (part.tool === 'ask_user') {
+        return <QuestionBlock input={part.input} status={part.status} output={part.output} />;
+      }
       return <ToolCallBlock tool={part.tool} input={part.input} status={part.status} output={part.output} />;
     case 'thinking':
       return <ThinkingBlock content={part.content} duration={part.duration} />;

@@ -7,8 +7,7 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 from app.agent.tools import tool_registry
-from app.agent.context.user_context import build_user_context_block
-from app.agent.context.org_context import build_org_context_snapshot
+from app.agent.context.user_context import build_user_context_block, build_context_snapshot
 from app.agent.prompts import DOMAIN_AGENT_PROMPT
 
 EVENT_TOOL_CALL_START = "tool_call_start"
@@ -21,21 +20,21 @@ EVENT_DONE = "done"
 
 BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
 - canvas: crear, leer, editar y listar documentos del canvas
-- memory: leer, escribir y listar archivos markdown en .kraid/
+- file: leer, escribir, listar y eliminar archivos del sistema jerárquico de conocimiento (file_write, file_read, file_list, file_delete)
 - fs: leer, escribir, listar y buscar archivos en el repo
-- org: crear y listar entidades organizacionales (org_entry_write, org_entry_list)"""
+- ask: hacer preguntas interactivas al usuario (ask_user)"""
 
 AUTO_MEMORY_INSTRUCTIONS = """
 Eres un asistente que aprende de sus interacciones con el usuario de manera continua.
-Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'user_memory_save' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
+Cuando el usuario mencione sus preferencias, su rol, de feedback sobre tu comportamiento, o te comparta detalles sobre el proyecto activo o referencias a sistemas externos, DEBES usar la tool 'file_write' para guardar esa información de manera proactiva, sin que el usuario te lo pida explícitamente.
 
 Reglas para guardar memoria:
 - Guarda hechos permanentes o de larga duración sobre el usuario o el entorno (ej: "uso tabs", "soy dev senior", "no uses emojis").
 - Usa el 'type' correcto:
   - 'profile': Quién es el usuario, su rol, su nivel de experiencia, su stack tecnológico.
   - 'feedback': Reglas de comportamiento, correcciones, aprobaciones validadas, qué hacer y qué NO hacer.
-  - 'projects': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
-  - 'references': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
+  - 'project': Iniciativas activas, contexto de la tarea actual que trascienda una sesión, motivaciones, deadlines.
+  - 'reference': Enlaces o punteros a sistemas externos (ej: Linear, JIRA, dashboards).
 - Qué NO guardar:
   - Tokens de API o secretos.
   - Estados temporales (ej: "estoy reiniciando el server").
@@ -63,7 +62,7 @@ class AgentService:
 
         user_context_block = build_user_context_block(session_id)
         today = datetime.date.today().isoformat()
-        org_snapshot = build_org_context_snapshot()
+        org_snapshot = build_context_snapshot()
         domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot)
 
         system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
@@ -184,7 +183,7 @@ class AgentService:
                         fn_args = {"_raw": fn_args_str}
                 
                 # Inject session_id for tools that need it for cache invalidation
-                if fn_name in ("user_memory_save", "user_memory_delete") and session_id is not None:
+                if fn_name in ("file_write", "file_delete", "ask_user") and session_id is not None:
                     fn_args["session_id"] = session_id
                 
                 tc_id = tc["id"]

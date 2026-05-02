@@ -2,13 +2,13 @@ import { create } from 'zustand';
 
 export type WorkspaceTabId =
   | { kind: 'canvas'; documentId: string }
-  | { kind: 'memory'; fileId: string }
-  | { kind: 'memory-explorer' };
+  | { kind: 'file'; slug: string }
+  | { kind: 'file-explorer' };
 
 export const tabKey = (id: WorkspaceTabId): string => {
   if (id.kind === 'canvas') return `canvas:${id.documentId}`;
-  if (id.kind === 'memory') return `memory:${id.fileId}`;
-  return 'memory-explorer';
+  if (id.kind === 'file') return `file:${id.slug}`;
+  return 'file-explorer';
 };
 
 interface WorkspacePanelState {
@@ -19,11 +19,12 @@ interface WorkspacePanelState {
   openPanel: () => void;
   closePanel: () => void;
   togglePanel: () => void;
+  openTab: (tabId: WorkspaceTabId) => void;
   focusTab: (tabId: WorkspaceTabId) => void;
   closeTab: (tabId: WorkspaceTabId) => void;
 }
 
-const EXPLORER_TAB: WorkspaceTabId = { kind: 'memory-explorer' };
+const EXPLORER_TAB: WorkspaceTabId = { kind: 'file-explorer' };
 
 export const useWorkspacePanelStore = create<WorkspacePanelState>((set) => ({
   isOpen: false,
@@ -35,6 +36,21 @@ export const useWorkspacePanelStore = create<WorkspacePanelState>((set) => ({
   closePanel: () => set({ isOpen: false }),
 
   togglePanel: () => set((state) => ({ isOpen: !state.isOpen })),
+
+  openTab: (tabId: WorkspaceTabId) => {
+    set((state) => {
+      const key = tabKey(tabId);
+      const exists = state.openTabIds.some((t) => tabKey(t) === key);
+      const newTabs = exists
+        ? state.openTabIds
+        : [...state.openTabIds, tabId];
+      return {
+        isOpen: true,
+        openTabIds: newTabs,
+        activeTabId: tabId,
+      };
+    });
+  },
 
   focusTab: (tabId: WorkspaceTabId) => {
     set((state) => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useConversationStore } from '../../../features/conversations/presentation/store/conversationStore';
 import { useSettingsStore } from '../../../features/settings/presentation/store/settingsStore';
-import { useMemoryStore } from '../../../features/memory/presentation/store/memoryStore';
+import { useFileStore } from '../../../features/files/presentation/store/fileStore';
 import { useCanvasStore } from '../../../features/canvas/presentation/store/canvasStore';
 import { useWorkspacePanelStore } from '../store/workspacePanelStore';
 import { SearchIcon, CogIcon, PlusIcon, PanelRightIcon, BrainIcon } from './icons';
@@ -22,7 +22,7 @@ export const CommandPalette = () => {
 
   const { conversations, setActiveConversation, loadConversations } = useConversationStore();
   const { openSettings } = useSettingsStore();
-  const { files: memoryFiles } = useMemoryStore();
+  const { files } = useFileStore();
   const { documents: canvasDocs } = useCanvasStore();
 
   useEffect(() => {
@@ -71,12 +71,12 @@ export const CommandPalette = () => {
       icon: <PanelRightIcon className="h-4 w-4" />,
       perform: () => { useWorkspacePanelStore.getState().focusTab({ kind: 'canvas', documentId: doc.id }); setIsOpen(false); },
     })),
-    ...memoryFiles.map((file) => ({
-      id: `mem-${file.id}`,
-      title: file.title,
-      description: `Memory · ${file.type}`,
+    ...files.map((file) => ({
+      id: `file-${file.slug}`,
+      title: file.name || file.slug || 'Untitled',
+      description: `File · ${file.type}`,
       icon: <BrainIcon className="h-4 w-4" />,
-      perform: () => { useWorkspacePanelStore.getState().focusTab({ kind: 'memory', fileId: file.id }); setIsOpen(false); },
+      perform: () => { useWorkspacePanelStore.getState().focusTab({ kind: 'file', slug: file.slug! }); setIsOpen(false); },
     })),
   ];
 

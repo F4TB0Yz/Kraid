@@ -6,11 +6,11 @@ import { SettingsModal } from './features/settings/presentation/components/Setti
 import { CommandPalette } from './core/presentation/components/CommandPalette';
 import { ToastProvider } from './core/presentation/components/Toast/ToastProvider';
 import { useSettingsStore } from './core/presentation/store/settingsStore';
-import { useMemoryWatcher } from './features/memory/presentation/hooks/useMemoryWatcher';
+import { useFileWatcher } from './features/files/presentation/hooks/useFileWatcher';
 
 function App() {
   const loadModels = useSettingsStore((s) => s.loadModels);
-  useMemoryWatcher();
+  useFileWatcher();
 
   useEffect(() => {
     void loadModels();
