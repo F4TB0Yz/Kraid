@@ -14,7 +14,7 @@ from app.agent.guardrails import ErrorBudget, build_error_warning
 from app.agent.telemetry import IterationMetrics, ToolCallRecord
 from app.agent.context.user_context import build_user_context_block, build_context_snapshot
 from app.agent.context.scope_context import scope_context
-from app.agent.prompts import DOMAIN_AGENT_PROMPT
+from app.agent import prompts as _prompts_module
 
 EVENT_TOOL_CALL_START = "tool_call_start"
 EVENT_TOOL_CALL_END = "tool_call_end"
@@ -23,6 +23,10 @@ EVENT_THINKING_START = "thinking_start"
 EVENT_THINKING_DELTA = "thinking_delta"
 EVENT_THINKING_END = "thinking_end"
 EVENT_DONE = "done"
+
+CHAT_MODE_INSTRUCTION = """Estás en MODO CHAT — modo conversación pura.
+No tienes acceso a herramientas, no puedes leer/escribir archivos, ni ejecutar comandos.
+Responde de forma conversacional y natural. No sugieras usar herramientas que no tienes."""
 
 BASE_TOOLS_PROMPT = """Tienes acceso a las siguientes categorías de tools:
 - canvas: crear, leer, editar y listar documentos del canvas
@@ -159,7 +163,7 @@ class AgentService:
                 "content": output,
             })
 
-    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None) -> AsyncIterator[str]:
+    async def stream(self, messages: list[dict], model: Optional[str] = None, session_id: Optional[str] = None, mode: str = "agent") -> AsyncIterator[str]:
         if not self._client:
             yield json.dumps({"type": "error", "content": "OPENAI_API_KEY not configured"})
             return
@@ -168,9 +172,12 @@ class AgentService:
         today = datetime.date.today().isoformat()
         org_snapshot = build_context_snapshot()
         current_scope = scope_context.get_scope_block(session_id) if session_id else "<current_scope>\nÁmbito: No especificado (sesión anónima)\n</current_scope>"
-        domain_prompt = DOMAIN_AGENT_PROMPT.format(TODAY=today, context_snapshot=org_snapshot, current_scope=current_scope)
+        domain_prompt = _prompts_module.load_prompt().format(TODAY=today, context_snapshot=org_snapshot, current_scope=current_scope)
 
-        system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
+        if mode == "chat":
+            system_content = f"{domain_prompt}\n{user_context_block}\n{CHAT_MODE_INSTRUCTION}"
+        else:
+            system_content = f"{domain_prompt}\n{BASE_TOOLS_PROMPT}\n{AUTO_MEMORY_INSTRUCTIONS}\n{user_context_block}"
 
         system_msg = {
             "role": "system",
@@ -188,6 +195,8 @@ class AgentService:
 
         model_name = model or settings.openai_model
         tools = tool_registry.openai_schemas()
+        if mode == "chat":
+            tools = None
         iteration_count = 0
 
         metrics = IterationMetrics()

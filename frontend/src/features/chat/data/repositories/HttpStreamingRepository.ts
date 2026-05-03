@@ -13,6 +13,7 @@ export class HttpStreamingRepository implements StreamingRepository {
     model?: string,
     sessionId?: string,
     signal?: AbortSignal,
+    mode?: 'chat' | 'agent' | 'edit',
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { messages };
     if (model) {
@@ -20,6 +21,9 @@ export class HttpStreamingRepository implements StreamingRepository {
     }
     if (sessionId) {
       body.session_id = sessionId;
+    }
+    if (mode) {
+      body.mode = mode;
     }
 
     const response = await fetch(`${this.apiBase}/api/chat/stream`, {

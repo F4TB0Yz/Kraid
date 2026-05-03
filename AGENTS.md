@@ -1,12 +1,7 @@
 # AGENTS.md — Kraid
 
 ## Project Identity
-
 **Kraid** es un monorepo full-stack:
-
-- **Frontend**: React 19 + Vite 6 + Tailwind CSS v4 + TypeScript (ES2023)
-- **Backend**: FastAPI (Python 3.9) + Uvicorn
-- **Package manager**: npm (frontend), pip/venv (backend)
 
 ## Commands
 

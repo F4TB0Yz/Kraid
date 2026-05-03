@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { MenuIcon, PanelRightIcon } from '../components/icons';
+import { MenuIcon, PanelRightIcon, ScrollTextIcon } from '../components/icons';
 import { Sidebar } from '../components/Sidebar';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspacePanel } from '../components/WorkspacePanel';
 import { useSidebarStore } from '../store/sidebarStore';
 import { useWorkspacePanelStore } from '../store/workspacePanelStore';
+import { AgentRulesModal } from '../../../features/settings/presentation/components/AgentRulesModal';
 
 interface SplitScreenLayoutProps {
   leftPanel: React.ReactNode;
@@ -20,6 +21,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
   const { sidebarOpen, toggleSidebar } = useSidebarStore();
   const { isOpen, togglePanel } = useWorkspacePanelStore();
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -106,6 +108,14 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
 
               <div className="flex items-center gap-1">
                 <button
+                  onClick={() => setRulesOpen(true)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-charcoal-warm transition-colors hover:bg-warm-sand hover:text-text"
+                  aria-label="Editar reglas del agente"
+                  title="Reglas del agente"
+                >
+                  <ScrollTextIcon className="h-5 w-5" />
+                </button>
+                <button
                   onClick={togglePanel}
                   className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                     isOpen ? 'bg-accent/10 text-accent' : 'text-charcoal-warm hover:bg-warm-sand hover:text-text'
@@ -148,6 +158,7 @@ export const SplitScreenLayout: React.FC<SplitScreenLayoutProps> = ({
         )}
       </div>
       <StatusBar />
+      <AgentRulesModal isOpen={rulesOpen} onClose={() => setRulesOpen(false)} />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import chat, canvas, files
+from app.routers import chat, canvas, files, agent
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(canvas.router, prefix="/api/canvas", tags=["canvas"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
+app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
 
 
 @app.on_event("startup")

@@ -26,7 +26,7 @@ interface ChatState {
   pendingQuestion: PendingQuestion | null;
   error: string | null;
   abortController: AbortController | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, mode?: 'chat' | 'agent' | 'edit') => Promise<void>;
   triggerGreeting: () => Promise<void>;
   regenerateMessage: (messageId: string) => Promise<void>;
   answerQuestion: (answer: string) => Promise<void>;
@@ -42,12 +42,13 @@ async function streamResponse(
   abortController: AbortController,
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
   get: () => ChatState,
+  mode: 'chat' | 'agent' | 'edit' = 'agent',
 ): Promise<void> {
   try {
     const selectedModel = useSettingsStore.getState().selectedModel ?? undefined;
     const events: StreamEvent[] = [];
 
-    const stream = httpStreamingRepository.stream(apiMessages, selectedModel, conversationId, abortController.signal);
+    const stream = httpStreamingRepository.stream(apiMessages, selectedModel, conversationId, abortController.signal, mode);
     for await (const event of stream) {
       events.push(event);
 
@@ -159,7 +160,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (content: string) => {
+  sendMessage: async (content: string, mode?: 'chat' | 'agent' | 'edit') => {
     set({ isLoading: true, error: null });
     const abortController = new AbortController();
     set({ abortController });
@@ -208,7 +209,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           content: m.content,
         }));
 
-      await streamResponse(apiMessages, currentConvId, assistantId, abortController, set, get);
+      await streamResponse(apiMessages, currentConvId, assistantId, abortController, set, get, mode);
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') {
         console.log('Stream aborted by user');
@@ -257,7 +258,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streamingParts: [],
       });
 
-      await streamResponse([], newId, assistantId, abortController, set, get);
+      await streamResponse([], newId, assistantId, abortController, set, get, 'agent');
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') {
         console.log('Greeting stream aborted by user');
@@ -317,7 +318,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content: m.content,
       }));
 
-      await streamResponse(apiMessages, convId, assistantId, abortController, set, get);
+      await streamResponse(apiMessages, convId, assistantId, abortController, set, get, 'agent');
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') {
         console.log('Regenerate aborted');

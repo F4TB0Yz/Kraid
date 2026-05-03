@@ -11,7 +11,7 @@ import { useChatStore } from '../store/chatStore';
 import { useWorkspacePanelStore } from '../../../../core/presentation/store/workspacePanelStore';
 
 interface ChatInputProps {
-  onSend: (content: string) => Promise<void>;
+  onSend: (content: string, mode?: 'chat' | 'agent' | 'edit') => Promise<void>;
   isLoading: boolean;
 }
 
@@ -128,7 +128,7 @@ export const ChatInput = ({ onSend, isLoading }: ChatInputProps) => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    await onSend(trimmed);
+    await onSend(trimmed, mode);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

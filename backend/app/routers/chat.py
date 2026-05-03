@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -12,6 +12,7 @@ class StreamRequest(BaseModel):
     messages: list[dict]
     model: Optional[str] = None
     session_id: Optional[str] = None
+    mode: Literal["chat", "agent", "edit"] = "agent"
 
 
 class AnswerRequest(BaseModel):
@@ -24,7 +25,7 @@ async def chat_stream(body: StreamRequest):
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
 
     async def event_generator():
-        async for event_json in agent_service.stream(body.messages, body.model, body.session_id):
+        async for event_json in agent_service.stream(body.messages, body.model, body.session_id, body.mode):
             yield {"event": "message", "data": event_json}
 
     return EventSourceResponse(content=event_generator())

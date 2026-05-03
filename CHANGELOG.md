@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Propagación del modo chat/agent/edit**: El selector de modo (ContextChips) ahora se propaga desde la UI hasta el backend. `StreamRequest.mode` (Literal["chat","agent","edit"]) en backend. Modo `chat` envía `tools=None` a OpenAI (conversación pura). Modo `agent` conserva todas las tools. Modo `edit` preparado para futuras restricciones. Cadena: `ChatInput.onSend(content, mode)` → `chatStore.sendMessage(content, mode)` → `streamResponse(..., mode)` → `HttpStreamingRepository.stream(..., mode)` → payload JSON `mode` → `AgentService.stream(..., mode)` → condiciona `tools=None`.
+
+- **System prompt condicional por modo**: En modo `chat`, el system prompt excluye `BASE_TOOLS_PROMPT` (descripción de herramientas), `AUTO_MEMORY_INSTRUCTIONS` (instrucciones de memoria), e inyecta `CHAT_MODE_INSTRUCTION` que declara explícitamente que el agente no tiene herramientas. En modo `agent`/`edit` el prompt completo permanece intacto. Esto evita que el LLM intente usar herramientas o guardar memoria cuando está en modo conversación pura.
+
 - **ActivityLog consolidado**: Nuevo componente `ActivityLog` que reemplaza el apilamiento individual de `ThinkingBlock` y `ToolCallBlock` por una fila única que se actualiza en tiempo real durante streaming. 4 estados: thinking progress (shimmer), thinking done + tool running, tools mixed (completadas + corriendo), todo completado (collapsible con chevron). Animación `activity-switch` para transiciones de texto. Detalle expandible por item (JSON input/output de tools, contenido de thinking).
 - **toolLabels.ts**: Constantes compartidas `TOOL_LABELS`, `getToolLabel()`, `getToolKeyArgument()` extraídas de `ToolCallBlock` a `presentation/constants/toolLabels.ts`. `ToolCallBlock` actualizado para importar desde constantes.
 - **Regenerate funcional**: Nuevo método `regenerateMessage()` en `chatStore` que trunca la conversación hasta el mensaje assistant target, crea nuevo placeholder, y relanza streaming completo. Botón Regenerate en `ChatMessage` ahora llama al store real.

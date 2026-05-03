@@ -11,7 +11,7 @@ export type StreamEvent =
   | { type: 'done' };
 
 export interface StreamingRepository {
-  stream(messages: { role: string; content: string }[], model?: string, sessionId?: string, signal?: AbortSignal): AsyncGenerator<StreamEvent>;
+  stream(messages: { role: string; content: string }[], model?: string, sessionId?: string, signal?: AbortSignal, mode?: 'chat' | 'agent' | 'edit'): AsyncGenerator<StreamEvent>;
 }
 
 const textDeltasToParts = (events: StreamEvent[]): StreamEvent[] => {

@@ -1,4 +1,8 @@
-DOMAIN_AGENT_PROMPT = """Eres Kraid, un asistente personal de organización. Tu función principal es ayudar al usuario a estructurar y persistir información en un sistema de archivos jerárquico basado en wiki-links.
+from pathlib import Path
+
+_PROMPT_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "agent_prompt.txt"
+
+_DEFAULT_PROMPT = """Eres Kraid, un asistente personal de organización. Tu función principal es ayudar al usuario a estructurar y persistir información en un sistema de archivos jerárquico basado en wiki-links.
 
 ## CONTEXTO TEMPORAL
 Hoy es: {TODAY}
@@ -100,3 +104,17 @@ Reglas:
 > Usuario: "Agrega una tarea al proyecto findyourmind: refactorizar el sidebar"
 > → Llamar `file_write` con type="task", slug="refactorizar-sidebar", name="Refactorizar sidebar", project="findyourmind", content="..."
 """
+
+
+def load_prompt() -> str:
+    if _PROMPT_FILE.exists():
+        return _PROMPT_FILE.read_text(encoding="utf-8")
+    return _DEFAULT_PROMPT
+
+
+def save_prompt(text: str) -> None:
+    _PROMPT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_FILE.write_text(text, encoding="utf-8")
+
+
+DOMAIN_AGENT_PROMPT = load_prompt()
